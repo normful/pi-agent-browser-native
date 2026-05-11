@@ -69,15 +69,14 @@ const DIRECT_AGENT_BROWSER_BASH_BYPASS_ENV = "PI_AGENT_BROWSER_ALLOW_DIRECT_BASH
 const PACKAGE_NAME = "pi-agent-browser-native";
 
 const AGENT_BROWSER_PARAMS = Type.Object({
-	args: Type.Array(Type.String({ description: "Exact agent-browser CLI arguments, excluding the binary name." }), {
-		description: "Exact agent-browser CLI arguments, excluding the binary name and any shell operators.",
+	args: Type.Array(Type.String({ description: "Args excluding binary name" }), {
+		description: "Args excluding binary name",
 		minItems: 1,
 	}),
-	stdin: Type.Optional(Type.String({ description: "Optional raw stdin content; only supported for batch, eval --stdin, and auth save --password-stdin." })),
+	stdin: Type.Optional(Type.String({ description: "batch, eval --stdin, auth --password-stdin" })),
 	sessionMode: Type.Optional(
 		StringEnum(["auto", "fresh"] as const, {
-			description:
-				"Session handling mode. `auto` reuses the extension-managed pi-scoped session when possible. `fresh` switches that managed session to a fresh upstream launch so launch-scoped flags like --profile, --session-name, --cdp, --state, --auto-connect, --init-script, or --enable apply and later auto calls follow the new browser.",
+			description: "auto=reuse session(refs stale). fresh=starts blank, must open.",
 			default: DEFAULT_SESSION_MODE,
 		}),
 	),
@@ -1549,7 +1548,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		name: "agent_browser",
 		label: "Agent Browser",
 		description:
-			"Browse and interact with websites using agent-browser. Use this for web research, reading live docs, opening pages, taking snapshots or screenshots, clicking links, filling forms, extracting page content, and authenticated/profile-based browser work.",
+			"Automated browser. CLI: open|snapshot -i(gen refs)|click/fill/type <ref>|scroll|eval|screenshot|get title/url/text/box|batch|back|forward|reload|set viewport/media|network requests|is visible|tab new/list/close. No arrow fns in eval. Re-snapshot after nav. fresh=starts blank. Read agent-browser-tool skill first",
 		promptSnippet:
 			"Browse websites, read live docs, click and fill pages, extract browser content, take screenshots, and automate real web workflows.",
 		promptGuidelines: toolPromptGuidelines,
