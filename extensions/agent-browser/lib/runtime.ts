@@ -71,7 +71,6 @@ const LAUNCH_SCOPED_FLAG_LABEL = LAUNCH_SCOPED_FLAG_DEFINITIONS.map((definition)
 const LAUNCH_SCOPED_TAB_CORRECTION_FLAGS = new Set(["--profile", "--session-name", "--state"] as const);
 const OPEN_COMMANDS = new Set(["goto", "navigate", "open"]);
 const OPENAI_HEADLESS_COMPAT_HOSTS = new Set(["chat.com", "chat.openai.com", "chatgpt.com"]);
-const BRAVE_API_KEY_ENV = "BRAVE_API_KEY";
 const AGENT_BROWSER_IDLE_TIMEOUT_ENV = "AGENT_BROWSER_IDLE_TIMEOUT_MS";
 const IMPLICIT_SESSION_IDLE_TIMEOUT_ENV = "PI_AGENT_BROWSER_IMPLICIT_SESSION_IDLE_TIMEOUT_MS";
 const IMPLICIT_SESSION_CLOSE_TIMEOUT_ENV = "PI_AGENT_BROWSER_IMPLICIT_SESSION_CLOSE_TIMEOUT_MS";
@@ -467,9 +466,7 @@ export function isPlainTextInspectionArgs(args: string[]): boolean {
 	return args.some((token) => INSPECTION_FLAGS.has(token));
 }
 
-export function hasUsableBraveApiKey(apiKey: string | null | undefined = process.env[BRAVE_API_KEY_ENV]): boolean {
-	return typeof apiKey === "string" && apiKey.trim().length > 0;
-}
+
 
 function parseTimeoutMs(rawValue: string | undefined, minimumValue: number): number | undefined {
 	if (typeof rawValue !== "string") return undefined;

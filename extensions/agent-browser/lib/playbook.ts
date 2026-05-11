@@ -21,8 +21,7 @@ export const QUICK_START_GUIDELINES = [
 	"For artifact-producing commands, read the visible artifact block for requested path, absolute path, existence, size, type, cwd, and session; details.artifacts contains the same machine-readable metadata. For annotated screenshots inside batch, put --annotate in top-level args (for example { args: [\"--annotate\", \"batch\"], stdin: \"[[\\\"screenshot\\\",\\\"/tmp/page.png\\\"]]\" }) rather than inside the screenshot step.",
 ] as const;
 
-export const BRAVE_SEARCH_PROMPT_GUIDELINE =
-	"When a non-empty BRAVE_API_KEY is available in the current environment, prefer the Brave Search API via bash/curl to discover specific destination URLs, then open the chosen URL with agent_browser instead of browsing a search engine results page just to find the target.";
+
 
 export const SHARED_BROWSER_PLAYBOOK_GUIDELINES = [
 	"Standard workflow: open the page, snapshot -i, interact using current @refs from that snapshot, and re-snapshot after navigation, scrolling, rerendering, or other major DOM changes because refs can become stale.",
@@ -64,19 +63,12 @@ export const WRAPPER_TAB_RECOVERY_BEHAVIOR = [
 	"If a known session target unexpectedly reports about:blank, agent_browser preserves the prior intended target, best-effort re-selects it when it still exists, and reports exact recovery guidance when it cannot be re-selected.",
 ] as const;
 
-export function buildSharedBrowserPlaybookGuidelines(options: { includeBraveSearch: boolean }): string[] {
-	return [
-		SHARED_BROWSER_PLAYBOOK_GUIDELINES[0],
-		...(options.includeBraveSearch ? [BRAVE_SEARCH_PROMPT_GUIDELINE] : []),
-		...SHARED_BROWSER_PLAYBOOK_GUIDELINES.slice(1),
-	];
-}
-
-export function buildToolPromptGuidelines(options: { includeBraveSearch: boolean }): string[] {
+export function buildToolPromptGuidelines(): string[] {
 	return [
 		...TOOL_PROMPT_GUIDELINES_PREFIX,
 		...QUICK_START_GUIDELINES,
-		...buildSharedBrowserPlaybookGuidelines(options),
+		SHARED_BROWSER_PLAYBOOK_GUIDELINES[0],
+		...SHARED_BROWSER_PLAYBOOK_GUIDELINES.slice(1),
 		...TOOL_PROMPT_GUIDELINES_SUFFIX,
 	];
 }

@@ -1,5 +1,5 @@
 ---
-name: agent-browser-tool
+name: browser-tool
 description: browser automation, web scraping, form filling, login workflows, page interaction
 ---
 

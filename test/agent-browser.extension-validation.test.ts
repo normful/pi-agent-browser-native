@@ -13,7 +13,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-	BRAVE_SEARCH_PROMPT_GUIDELINE,
 	QUICK_START_GUIDELINES,
 	SHARED_BROWSER_PLAYBOOK_GUIDELINES,
 	TOOL_PROMPT_GUIDELINES_PREFIX,
@@ -36,53 +35,50 @@ import {
 } from "./helpers/agent-browser-harness.js";
 
 test("agentBrowserExtension keeps the full browser playbook in tool metadata and only injects a minimal browser prompt when relevant", async () => {
-	await withPatchedEnv({ BRAVE_API_KEY: "demo-key" }, async () => {
-		const harness = createExtensionHarness({ cwd: process.cwd() });
+	const harness = createExtensionHarness({ cwd: process.cwd() });
 		assert.deepEqual([...harness.handlers.keys()].sort(), ["before_agent_start", "session_shutdown", "session_start", "tool_call"]);
-		assert.equal(harness.tool.name, "agent_browser");
-		assert.match(harness.tool.description, /authenticated\/profile-based browser work/);
+		assert.equal(harness.tool.name, "browser");
+		assert.match(harness.tool.description, /Automated browser/);
 		assert.match(harness.tool.promptSnippet, /real web workflows/);
 
-		const expectedGuidelines = [
-			...TOOL_PROMPT_GUIDELINES_PREFIX,
-			...QUICK_START_GUIDELINES,
-			SHARED_BROWSER_PLAYBOOK_GUIDELINES[0],
-			BRAVE_SEARCH_PROMPT_GUIDELINE,
-			...SHARED_BROWSER_PLAYBOOK_GUIDELINES.slice(1),
-			...TOOL_PROMPT_GUIDELINES_SUFFIX,
-		];
-		for (const guideline of expectedGuidelines) {
-			assert.equal(
-				harness.tool.promptGuidelines.includes(guideline),
-				true,
-				`missing canonical playbook guideline: ${guideline}`,
-			);
-		}
+	const expectedGuidelines = [
+		...TOOL_PROMPT_GUIDELINES_PREFIX,
+		...QUICK_START_GUIDELINES,
+		SHARED_BROWSER_PLAYBOOK_GUIDELINES[0],
+		...SHARED_BROWSER_PLAYBOOK_GUIDELINES.slice(1),
+		...TOOL_PROMPT_GUIDELINES_SUFFIX,
+	];
+	for (const guideline of expectedGuidelines) {
 		assert.equal(
-			WRAPPER_TAB_RECOVERY_BEHAVIOR.some((line) => line.includes("After a successful command")),
+			harness.tool.promptGuidelines.includes(guideline),
 			true,
+			`missing canonical playbook guideline: ${guideline}`,
 		);
+	}
+	assert.equal(
+		WRAPPER_TAB_RECOVERY_BEHAVIOR.some((line) => line.includes("After a successful command")),
+		true,
+	);
 
-		const [genericTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
-			harness.handlers,
-			"before_agent_start",
-			{ prompt: "Please review the repository architecture.", systemPrompt: "Base system prompt" },
-			harness.ctx,
-		);
-		assert.equal(genericTurn, undefined);
+	const [genericTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
+		harness.handlers,
+		"before_agent_start",
+		{ prompt: "Please review the repository architecture.", systemPrompt: "Base system prompt" },
+		harness.ctx,
+	);
+	assert.equal(genericTurn, undefined);
 
-		const [browserTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
-			harness.handlers,
-			"before_agent_start",
-			{ prompt: "Open https://example.com and take a snapshot.", systemPrompt: "Base system prompt" },
-			harness.ctx,
-		);
-		assert.equal(typeof browserTurn?.systemPrompt, "string");
-		assert.equal(browserTurn?.systemPrompt.includes("Base system prompt"), true);
-		assert.equal(browserTurn?.systemPrompt.includes("Project rule: when browser automation is needed"), true);
-		assert.equal(browserTurn?.systemPrompt.includes("Quick start:"), false);
-		assert.equal(browserTurn?.systemPrompt.includes("Browser operating playbook:"), false);
-	});
+	const [browserTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
+		harness.handlers,
+		"before_agent_start",
+		{ prompt: "Open https://example.com and take a snapshot.", systemPrompt: "Base system prompt" },
+		harness.ctx,
+	);
+	assert.equal(typeof browserTurn?.systemPrompt, "string");
+	assert.equal(browserTurn?.systemPrompt.includes("Base system prompt"), true);
+	assert.equal(browserTurn?.systemPrompt.includes("Project rule: when browser automation is needed"), true);
+	assert.equal(browserTurn?.systemPrompt.includes("Quick start:"), false);
+	assert.equal(browserTurn?.systemPrompt.includes("Browser operating playbook:"), false);
 });
 
 test("agentBrowserExtension blocks direct and wrapped agent-browser bash unless the prompt, env, or package dev cwd explicitly allows it", async () => {
@@ -108,7 +104,7 @@ test("agentBrowserExtension blocks direct and wrapped agent-browser bash unless 
 			defaultHarness.ctx,
 		);
 		assert.equal(blocked?.block, true, command);
-		assert.match(blocked?.reason ?? "", /Use the native agent_browser tool instead of bash/i);
+		assert.match(blocked?.reason ?? "", /Use the native browser tool instead of bash/i);
 	}
 
 	const inspectionAllowed = await runExtensionEventResults(

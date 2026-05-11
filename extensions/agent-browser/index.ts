@@ -37,7 +37,6 @@ import {
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
 	hasLaunchScopedTabCorrectionFlag,
-	hasUsableBraveApiKey,
 	extractExplicitSessionName,
 	redactInvocationArgs,
 	redactSensitiveText,
@@ -1473,8 +1472,7 @@ async function closeManagedSession(options: { cwd: string; sessionName: string; 
 
 export default function agentBrowserExtension(pi: ExtensionAPI) {
 	const ephemeralSessionSeed = createEphemeralSessionSeed();
-	const hasBraveApiKey = hasUsableBraveApiKey();
-	const toolPromptGuidelines = buildToolPromptGuidelines({ includeBraveSearch: hasBraveApiKey });
+	const toolPromptGuidelines = buildToolPromptGuidelines();
 	const implicitSessionIdleTimeoutMs = String(getImplicitSessionIdleTimeoutMs());
 	const implicitSessionCloseTimeoutMs = getImplicitSessionCloseTimeoutMs();
 	let managedSessionActive = false;
@@ -1539,16 +1537,16 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		) {
 			return {
 				block: true,
-				reason: "Use the native agent_browser tool instead of bash for agent-browser in this environment.",
+				reason: "Use the native browser tool instead of bash for agent-browser in this environment.",
 			};
 		}
 	});
 
 	pi.registerTool({
-		name: "agent_browser",
-		label: "Agent Browser",
+		name: "browser",
+		label: "Browser",
 		description:
-			"Automated browser. CLI: open|snapshot -i(gen refs)|click/fill/type <ref>|scroll|eval|screenshot|get title/url/text/box|batch|back|forward|reload|set viewport/media|network requests|is visible|tab new/list/close. No arrow fns in eval. Re-snapshot after nav. fresh=starts blank. Read agent-browser-tool skill first",
+			"Automated browser. CLI: open|snapshot -i(gen refs)|click/fill/type <ref>|scroll|eval|screenshot|get title/url/text/box|batch|back|forward|reload|set viewport/media|network requests|is visible|tab new/list/close. No arrow fns in eval. Re-snapshot after nav. fresh=starts blank. Read browser-tool skill first",
 		promptSnippet:
 			"Browse websites, read live docs, click and fill pages, extract browser content, take screenshots, and automate real web workflows.",
 		promptGuidelines: toolPromptGuidelines,

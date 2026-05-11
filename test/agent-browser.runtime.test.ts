@@ -26,7 +26,6 @@ import {
 	getLatestUserPrompt,
 	hasLaunchScopedTabCorrectionFlag,
 	parseCommandInfo,
-	hasUsableBraveApiKey,
 	redactInvocationArgs,
 	redactSensitiveText,
 	redactSensitiveValue,
@@ -74,12 +73,7 @@ test("getAgentBrowserSocketDir uses a short user-specific unix socket directory 
 	assert.equal(getAgentBrowserSocketDir("win32", undefined), undefined);
 });
 
-test("hasUsableBraveApiKey only accepts non-empty values", () => {
-	assert.equal(hasUsableBraveApiKey(null), false);
-	assert.equal(hasUsableBraveApiKey(""), false);
-	assert.equal(hasUsableBraveApiKey("   \n\t  "), false);
-	assert.equal(hasUsableBraveApiKey("demo-key"), true);
-});
+
 
 test("shared parsing helpers preserve boundary parsing semantics", () => {
 	assert.equal(isRecord({}), true);
