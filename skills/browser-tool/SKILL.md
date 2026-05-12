@@ -1,6 +1,7 @@
 ---
 name: browser-tool
-description: browser automation, web scraping, form filling, login workflows, page interaction
+description: |
+  Default browser automation CLI — simple commands for open, click, fill, screenshot, scrape text (via eval). Clean output, no wrapper noise. For diagnostics (Lighthouse, network inspect) → chrome-devtools-cli. For E2E testing with TypeScript or multi-browser → playwright-cli.
 ---
 
 # agent_browser Tool
