@@ -68,14 +68,14 @@ const DIRECT_AGENT_BROWSER_BASH_BYPASS_ENV = "PI_AGENT_BROWSER_ALLOW_DIRECT_BASH
 const PACKAGE_NAME = "pi-agent-browser-native";
 
 const AGENT_BROWSER_PARAMS = Type.Object({
-	args: Type.Array(Type.String({ description: "Args excluding binary name" }), {
-		description: "Args excluding binary name",
+	args: Type.Array(Type.String(), {
+		description: "⚠️ READ browser-tool SKILL FIRST. agent-browser command and args",
 		minItems: 1,
 	}),
 	stdin: Type.Optional(Type.String({ description: "batch, eval --stdin, auth --password-stdin" })),
 	sessionMode: Type.Optional(
 		StringEnum(["auto", "fresh"] as const, {
-			description: "auto=reuse session(refs stale). fresh=starts blank, must open.",
+			description: "auto=reuse session (re-snapshot after nav). fresh=starts blank, must open first.",
 			default: DEFAULT_SESSION_MODE,
 		}),
 	),
@@ -1546,9 +1546,9 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		name: "browser",
 		label: "Browser",
 		description:
-			"Automated browser. CLI: open|snapshot -i(gen refs)|click/fill/type <ref>|scroll|eval|screenshot|get title/url/text/box|batch|back|forward|reload|set viewport/media|network requests|is visible|tab new/list/close. No arrow fns in eval. Re-snapshot after nav. fresh=starts blank. Read browser-tool skill first",
+			"⚠️ READ browser-tool SKILL FIRST. Default browser automation — open URLs, click/fill/type, scrape text (eval), screenshots, batch scripts, cookies/sessions. For diagnostics → chrome-devtools-cli. For E2E tests → playwright-cli.",
 		promptSnippet:
-			"Browse websites, read live docs, click and fill pages, extract browser content, take screenshots, and automate real web workflows.",
+			"⚠️ READ browser-tool SKILL FIRST. Quick browser automation — open pages, click elements, fill forms, scrape text, screenshots. For diagnostics use chrome-devtools-cli, for E2E tests use playwright-cli.",
 		promptGuidelines: toolPromptGuidelines,
 		parameters: AGENT_BROWSER_PARAMS,
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
