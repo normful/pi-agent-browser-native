@@ -1598,18 +1598,15 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				return new Text(text, 0, 0);
 			}
 
-			// Expanded: show full args + stdin hint
+			// Expanded: CLI-style full invocation + stdin
 			const lines: string[] = [text];
 
-			const otherArgs = params.args.slice(1);
-			if (otherArgs.length > 0) {
-				const argsText = otherArgs.join(" ");
-				lines.push(theme.fg("dim", truncateText(argsText, 100)));
-			}
+			const allArgs = params.args.join(" ");
+			lines.push(theme.fg("dim", allArgs));
 
 			if (params.stdin) {
-				const stdinPreview = params.stdin.length > 60
-					? `${params.stdin.slice(0, 57)}...`
+				const stdinPreview = params.stdin.length > 100
+					? `${params.stdin.slice(0, 97)}...`
 					: params.stdin;
 				lines.push(theme.fg("muted", `stdin: ${stdinPreview}`));
 			}
