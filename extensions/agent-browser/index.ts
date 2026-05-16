@@ -1587,26 +1587,26 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			const command = params.args[0] ?? "?";
 			const sessionMode = params.sessionMode ?? DEFAULT_SESSION_MODE;
 
-			// Line 1: browser <command> [sessionMode]
+			// Line 1: browser <command> [sessionMode] — toolTitle + syntaxKeyword + syntaxOperator
 			const header = theme.fg("toolTitle", theme.bold("browser"));
-			const line1 = `${header} ${theme.fg("accent", command)} ${theme.fg("muted", `[${sessionMode}]`)}`;
+			const line1 = `${header} ${theme.fg("syntaxKeyword", command)} ${theme.fg("syntaxOperator", `[${sessionMode}]`)}`;
 
-			// Line 2: full args truncated to 120 chars
+			// Line 2: full args truncated to 120 chars — syntaxString
 			const allArgs = params.args.join(" ");
-			const line2 = theme.fg("dim", truncateText(allArgs, 120));
+			const line2 = theme.fg("syntaxString", truncateText(allArgs, 120));
 
 			if (!ctx.expanded) {
 				return new Text(`${line1}\n${line2}`, 0, 0);
 			}
 
-			// Expanded: add stdin preview
+			// Expanded: add stdin preview — syntaxPunctuation label + syntaxString content
 			const lines: string[] = [line1, line2];
 
 			if (params.stdin) {
 				const stdinPreview = params.stdin.length > 100
 					? `${params.stdin.slice(0, 97)}...`
 					: params.stdin;
-				lines.push(theme.fg("muted", `stdin: ${stdinPreview}`));
+				lines.push(`${theme.fg("syntaxPunctuation", "stdin:")} ${theme.fg("syntaxString", stdinPreview)}`);
 			}
 
 			return new Text(lines.join("\n"), 0, 0);
@@ -1631,20 +1631,20 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			let summary = `${statusIcon}`;
 
 			if (isErr && details?.timedOut) {
-				summary += ` ${theme.fg("warning", "timeout")}`;
+				summary += ` ${theme.fg("syntaxKeyword", "timeout")}`;
 			} else if (details?.batchSteps !== undefined) {
 				const stepCount = Array.isArray(details.batchSteps) ? details.batchSteps.length : 0;
 				if (stepCount > 0) {
-					summary += ` ${theme.fg("text", `batch:${stepCount} steps`)}`;
+					summary += ` ${theme.fg("syntaxNumber", `batch:${stepCount} steps`)}`;
 				}
 			} else if (command && NAVIGATION_SUMMARY_COMMANDS.has(command) && navigationSummary?.title) {
-				summary += ` ${theme.fg("text", truncateText(navigationSummary.title, 60))}`;
+				summary += ` ${theme.fg("syntaxString", truncateText(navigationSummary.title, 60))}`;
 			} else if (navigationSummary?.url) {
-				summary += ` ${theme.fg("dim", truncateText(navigationSummary.url, 60))}`;
+				summary += ` ${theme.fg("syntaxType", truncateText(navigationSummary.url, 60))}`;
 			} else if (details?.savedFilePath) {
-				summary += ` ${theme.fg("text", truncateText(details.savedFilePath, 60))}`;
+				summary += ` ${theme.fg("syntaxVariable", truncateText(details.savedFilePath, 60))}`;
 			} else if (details?.imagePath) {
-				summary += ` ${theme.fg("text", truncateText(details.imagePath, 60))}`;
+				summary += ` ${theme.fg("syntaxVariable", truncateText(details.imagePath, 60))}`;
 			} else if (isErr && details?.error) {
 				const errorPreview = typeof details.error === "string" ? details.error : "error";
 				summary += ` ${theme.fg("error", truncateText(errorPreview, 60))}`;
@@ -1658,7 +1658,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			const lines: string[] = [summary];
 
 			if (details?.sessionName) {
-				lines.push(theme.fg("dim", `Session: ${details.sessionName}`));
+				lines.push(`${theme.fg("syntaxPunctuation", "Session:")} ${theme.fg("syntaxVariable", details.sessionName)}`);
 			}
 
 			const textContent = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
