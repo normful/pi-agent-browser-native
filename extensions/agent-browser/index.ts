@@ -1591,9 +1591,9 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			const header = theme.fg("toolTitle", theme.bold("browser"));
 			const line1 = `${header} ${theme.fg("accent", command)} ${theme.fg("muted", `[${sessionMode}]`)}`;
 
-			// Line 2: full args (always visible)
+			// Line 2: full args truncated to 120 chars
 			const allArgs = params.args.join(" ");
-			const line2 = theme.fg("dim", allArgs);
+			const line2 = theme.fg("dim", truncateText(allArgs, 120));
 
 			if (!ctx.expanded) {
 				return new Text(`${line1}\n${line2}`, 0, 0);
