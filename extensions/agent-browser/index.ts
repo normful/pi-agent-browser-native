@@ -1589,7 +1589,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 
 			// Line 1: browser <command> [sessionMode] — toolTitle + syntaxKeyword + syntaxOperator
 			const header = theme.fg("toolTitle", theme.bold("browser"));
-			const line1 = `${header} ${theme.fg("syntaxKeyword", command)} ${theme.fg("syntaxOperator", `[${sessionMode}]`)}`;
+			const line1 = `${header} ${theme.fg("syntaxKeyword", command)} ${theme.fg("syntaxPunctuation", `[sessionMode:`)}${theme.fg("syntaxVariable", sessionMode)}${theme.fg("syntaxPunctuation", `]`)}`;
 
 			// Line 2: full args truncated to 120 chars — syntaxString
 			const allArgs = params.args.join(" ");
