@@ -1658,7 +1658,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			const lines: string[] = [summary];
 
 			if (details?.sessionName) {
-				lines.push(`${theme.fg("syntaxPunctuation", "Session:")} ${theme.fg("syntaxVariable", details.sessionName)}`);
+				lines.push(`${theme.fg("syntaxFunction", "Session:")} ${theme.fg("syntaxVariable", details.sessionName)}`);
 			}
 
 			const textContent = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
