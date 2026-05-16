@@ -1588,21 +1588,19 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			const sessionMode = params.sessionMode ?? DEFAULT_SESSION_MODE;
 
 			// Line 1: browser <command> [sessionMode]
-			let text = theme.fg("toolTitle", theme.bold("browser"));
-			text += " ";
-			text += theme.fg("accent", command);
-			text += " ";
-			text += theme.fg("muted", `[${sessionMode}]`);
+			const header = theme.fg("toolTitle", theme.bold("browser"));
+			const line1 = `${header} ${theme.fg("accent", command)} ${theme.fg("muted", `[${sessionMode}]`)}`;
+
+			// Line 2: full args (always visible)
+			const allArgs = params.args.join(" ");
+			const line2 = theme.fg("dim", allArgs);
 
 			if (!ctx.expanded) {
-				return new Text(text, 0, 0);
+				return new Text(`${line1}\n${line2}`, 0, 0);
 			}
 
-			// Expanded: CLI-style full invocation + stdin
-			const lines: string[] = [text];
-
-			const allArgs = params.args.join(" ");
-			lines.push(theme.fg("dim", allArgs));
+			// Expanded: add stdin preview
+			const lines: string[] = [line1, line2];
 
 			if (params.stdin) {
 				const stdinPreview = params.stdin.length > 100
