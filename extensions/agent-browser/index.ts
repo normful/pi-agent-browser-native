@@ -1583,15 +1583,38 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			"⚠️ READ browser-tool SKILL FIRST. Quick browser automation — open pages, click elements, fill forms, scrape text, screenshots. For diagnostics use chrome-devtools-cli, for E2E tests use playwright-cli.",
 		promptGuidelines: toolPromptGuidelines,
 		parameters: AGENT_BROWSER_PARAMS,
-		renderCall(params: BrowserCallArgs, theme: Theme) {
+		renderCall(params: BrowserCallArgs, theme: Theme, ctx: { expanded: boolean }) {
 			const command = params.args[0] ?? "?";
 			const sessionMode = params.sessionMode ?? DEFAULT_SESSION_MODE;
+
+			// Line 1: browser <command> [sessionMode]
 			let text = theme.fg("toolTitle", theme.bold("browser"));
 			text += " ";
 			text += theme.fg("accent", command);
 			text += " ";
 			text += theme.fg("muted", `[${sessionMode}]`);
-			return new Text(text, 0, 0);
+
+			if (!ctx.expanded) {
+				return new Text(text, 0, 0);
+			}
+
+			// Expanded: show full args + stdin hint
+			const lines: string[] = [text];
+
+			const otherArgs = params.args.slice(1);
+			if (otherArgs.length > 0) {
+				const argsText = otherArgs.join(" ");
+				lines.push(theme.fg("dim", truncateText(argsText, 100)));
+			}
+
+			if (params.stdin) {
+				const stdinPreview = params.stdin.length > 60
+					? `${params.stdin.slice(0, 57)}...`
+					: params.stdin;
+				lines.push(theme.fg("muted", `stdin: ${stdinPreview}`));
+			}
+
+			return new Text(lines.join("\n"), 0, 0);
 		},
 		renderResult(
 			result: AgentToolResult<BrowserResultDetails>,
@@ -1604,15 +1627,13 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 
 			const details = result.details;
 			const isErr: boolean | undefined = (result as unknown as Record<string, unknown>).isError as boolean | undefined;
-			const exitCode = details?.exitCode ?? 0;
 			const command = details?.command;
 			const navigationSummary = details?.navigationSummary;
 
 			// Collapsed: status + exitCode + page title / batch count / error excerpt
 			const statusIcon = isErr ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const exitCodeLabel = exitCode !== 0 ? theme.fg("error", `[${exitCode}]`) : theme.fg("muted", `[${exitCode}]`);
 
-			let summary = `${statusIcon} ${exitCodeLabel}`;
+			let summary = `${statusIcon}`;
 
 			if (isErr && details?.timedOut) {
 				summary += ` ${theme.fg("warning", "timeout")}`;
