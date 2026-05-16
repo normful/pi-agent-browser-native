@@ -11,6 +11,8 @@ import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import {
@@ -80,6 +82,31 @@ const AGENT_BROWSER_PARAMS = Type.Object({
 		}),
 	),
 });
+
+interface BrowserCallArgs {
+	args: string[];
+	stdin?: string;
+	sessionMode?: "auto" | "fresh";
+}
+
+interface BrowserResultDetails {
+	command?: string;
+	subcommand?: string;
+	sessionName?: string;
+	sessionMode?: string;
+	exitCode?: number;
+	error?: unknown;
+	summary?: string;
+	navigationSummary?: { title?: string; url?: string };
+	batchFailure?: unknown;
+	batchSteps?: unknown;
+	timedOut?: boolean | undefined;
+	savedFilePath?: string;
+	imagePath?: string;
+	imagePaths?: string[];
+	[key: string]: unknown;
+}
+
 function buildMissingBinaryMessage(): string {
 	return [
 		"agent-browser is required but was not found on PATH.",
@@ -319,6 +346,11 @@ interface NavigationSummary {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+function truncateText(text: string, maxLen: number): string {
+	if (text.length <= maxLen) return text;
+	return `${text.slice(0, maxLen - 1)}…`;
 }
 
 const SCREENSHOT_VALUE_FLAGS = new Set(["--screenshot-dir", "--screenshot-format", "--screenshot-quality"]);
@@ -737,7 +769,7 @@ const SESSION_TAB_POST_COMMAND_CORRECTION_EXCLUDED_COMMANDS = new Set(["batch", 
 
 type PinnedBatchUnwrapMode = "single-command" | "user-batch";
 
-type AgentBrowserToolResult = AgentToolResult<unknown> & { isError?: boolean };
+type AgentBrowserToolResult = AgentToolResult<BrowserResultDetails> & { isError?: boolean };
 
 type BatchCommandStep = [string, ...string[]];
 
@@ -1551,6 +1583,78 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			"⚠️ READ browser-tool SKILL FIRST. Quick browser automation — open pages, click elements, fill forms, scrape text, screenshots. For diagnostics use chrome-devtools-cli, for E2E tests use playwright-cli.",
 		promptGuidelines: toolPromptGuidelines,
 		parameters: AGENT_BROWSER_PARAMS,
+		renderCall(params: BrowserCallArgs, theme: Theme) {
+			const command = params.args[0] ?? "?";
+			const sessionMode = params.sessionMode ?? DEFAULT_SESSION_MODE;
+			let text = theme.fg("toolTitle", theme.bold("browser"));
+			text += " ";
+			text += theme.fg("accent", command);
+			text += " ";
+			text += theme.fg("muted", `[${sessionMode}]`);
+			return new Text(text, 0, 0);
+		},
+		renderResult(
+			result: AgentToolResult<BrowserResultDetails>,
+			{ expanded, isPartial }: { expanded: boolean; isPartial: boolean },
+			theme: Theme,
+		) {
+			if (isPartial) {
+				return new Text(theme.fg("muted", "⏳ Running browser…"), 0, 0);
+			}
+
+			const details = result.details;
+			const isErr: boolean | undefined = (result as unknown as Record<string, unknown>).isError as boolean | undefined;
+			const exitCode = details?.exitCode ?? 0;
+			const command = details?.command;
+			const navigationSummary = details?.navigationSummary;
+
+			// Collapsed: status + exitCode + page title / batch count / error excerpt
+			const statusIcon = isErr ? theme.fg("error", "✗") : theme.fg("success", "✓");
+			const exitCodeLabel = exitCode !== 0 ? theme.fg("error", `[${exitCode}]`) : theme.fg("muted", `[${exitCode}]`);
+
+			let summary = `${statusIcon} ${exitCodeLabel}`;
+
+			if (isErr && details?.timedOut) {
+				summary += ` ${theme.fg("warning", "timeout")}`;
+			} else if (details?.batchSteps !== undefined) {
+				const stepCount = Array.isArray(details.batchSteps) ? details.batchSteps.length : 0;
+				if (stepCount > 0) {
+					summary += ` ${theme.fg("text", `batch:${stepCount} steps`)}`;
+				}
+			} else if (command && NAVIGATION_SUMMARY_COMMANDS.has(command) && navigationSummary?.title) {
+				summary += ` ${theme.fg("text", truncateText(navigationSummary.title, 60))}`;
+			} else if (navigationSummary?.url) {
+				summary += ` ${theme.fg("dim", truncateText(navigationSummary.url, 60))}`;
+			} else if (details?.savedFilePath) {
+				summary += ` ${theme.fg("text", truncateText(details.savedFilePath, 60))}`;
+			} else if (details?.imagePath) {
+				summary += ` ${theme.fg("text", truncateText(details.imagePath, 60))}`;
+			} else if (isErr && details?.error) {
+				const errorPreview = typeof details.error === "string" ? details.error : "error";
+				summary += ` ${theme.fg("error", truncateText(errorPreview, 60))}`;
+			}
+
+			if (!expanded) {
+				return new Text(summary, 0, 0);
+			}
+
+			// Expanded: session name + first line of output
+			const lines: string[] = [summary];
+
+			if (details?.sessionName) {
+				lines.push(theme.fg("dim", `Session: ${details.sessionName}`));
+			}
+
+			const textContent = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
+			if (textContent && textContent.text.length > 0) {
+				const firstLineOnly = textContent.text.split("\n", 1)[0]?.trim();
+				if (firstLineOnly && firstLineOnly.length > 0) {
+					lines.push(theme.fg("toolOutput", firstLineOnly));
+				}
+			}
+
+			return new Text(lines.join("\n"), 0, 0);
+		},
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const redactedArgs = redactInvocationArgs(params.args);
 			const validationError = validateToolArgs(params.args) ?? getBatchAnnotateValidationError(params.args, params.stdin);
