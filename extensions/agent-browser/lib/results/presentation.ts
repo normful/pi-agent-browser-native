@@ -878,12 +878,16 @@ function getSavedFileDetails(commandInfo: CommandInfo, data: Record<string, unkn
 }
 
 function getScalarExtractionResult(data: Record<string, unknown>): string | undefined {
-	const { result } = data;
-	if (typeof result === "string") {
-		return result.trim().length > 0 ? result : undefined;
-	}
-	if (typeof result === "number" || typeof result === "boolean") {
-		return String(result);
+	const SCALAR_FIELDS = ["result", "text", "value"] as const;
+	for (const field of SCALAR_FIELDS) {
+		const value = data[field];
+		if (typeof value === "string") {
+			const trimmed = value.trim();
+			if (trimmed.length > 0) return trimmed;
+		}
+		if (typeof value === "number" || typeof value === "boolean") {
+			return String(value);
+		}
 	}
 	return undefined;
 }
@@ -1358,6 +1362,11 @@ function formatContentText(commandInfo: CommandInfo, data: unknown): string {
 	if (commandInfo.command === "screenshot") {
 		const screenshotSummary = getScreenshotSummary(data);
 		if (screenshotSummary) return screenshotSummary;
+	}
+	if (commandInfo.command === "read") {
+		if (typeof data.content === "string" && data.content.trim().length > 0) {
+			return redactModelFacingText(data.content);
+		}
 	}
 	const skillsText = formatSkillsText(commandInfo, data);
 	if (skillsText) {
