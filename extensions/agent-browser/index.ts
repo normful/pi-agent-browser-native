@@ -71,7 +71,7 @@ const PACKAGE_NAME = "pi-agent-browser-native";
 
 const AGENT_BROWSER_PARAMS = Type.Object({
 	args: Type.Array(Type.String(), {
-		description: "⚠️ READ browser-tool SKILL FIRST. agent-browser command and args",
+		description: "⚠️ Not Playwright — MUST read /skill:browser-tool first! For diagnostics → chrome-devtools-cli. For E2E → playwright-cli",
 		minItems: 1,
 	}),
 	stdin: Type.Optional(Type.String({ description: "batch, eval --stdin, auth --password-stdin" })),
