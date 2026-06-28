@@ -1,15 +1,23 @@
 ---
 name: browser-tool
 description: |
-  Default browser automation CLI — simple commands for open, click, fill, screenshot, scrape text (via eval). Clean output, no wrapper noise. For diagnostics (Lighthouse, network inspect) → chrome-devtools-cli. For E2E testing with TypeScript or multi-browser → playwright-cli.
+  Default browser automation CLI — simple commands for open, click, fill, screenshot, ingest page text via `read`. Clean output, no wrapper noise. For diagnostics (Lighthouse, network inspect) → chrome-devtools-cli. For E2E testing with TypeScript or multi-browser → playwright-cli.
 ---
 
 # agent_browser Tool
 Browser automation tool. Commands are JSON arrays (one per line), not bash commands
 
-# Essential Workflow
+# Essential Workflows
+
+**Information gathering** (you want page contents, not interaction):
 ```json
-["open", "url"]
+["read", "<url>"]
+```
+Clean, agent-readable text. Renders JS, handles SPAs, respects cookies/sessions. Replaces `web_fetch`.
+
+**Interaction / testing** (you need to click, fill, navigate):
+```json
+["open", "<url>"]
 ["snapshot", "-i"]
 ["click", "e5"]
 ```
@@ -41,14 +49,15 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 - `close [--all]` — close browser (--all closes every session)
 
 ### Extraction
+> `read <url>` — **canonical command for information gathering.** Renders JS, handles SPAs, respects cookies/sessions. Replaces `web_fetch`. Omit URL to re-read current page.
+
 | Command | Example |
 |---------|---------|
 | `get text <ref\|selector>` | `{"text": "Submit"}` |
 | `get box <ref>` | `{height, width, x, y}` |
 | `get title\|url` | `"Page Title"` |
 | `get value <ref>` | `{"value": "input text"}` |
-| `eval <js>` | Extract anything |
-| `read [url]` | Agent-readable page text (omit URL for current page) |
+| `eval <js>` | Extract anything (only if `read` doesn't suffice) |
 | `eval --stdin` | Pipe JS via stdin |
 
 > ⚠️ `get attr` unreliable — use `eval "el.getAttribute('href')"`
@@ -171,7 +180,7 @@ These work as JSON commands but are typically used via direct `agent-browser` CL
 - `clipboard` requires user gesture permission in headless — use `--headed` or skip clipboard in headless.
 - `screenshot --annotate` must be passed as top-level flag (`--annotate` before `batch`), not inline in batch steps.
 - `session` command works in direct CLI but may not behave as expected when called via this tool wrapper — use `AGENT_BROWSER_SESSION` env var for session management.
-- `read` currently returns page URL rather than full text content — use `eval "document.body.innerText"` for full text extraction.
+
 
 ## Common Mistakes
 | ❌ Wrong | ✅ Correct |
@@ -182,7 +191,10 @@ These work as JSON commands but are typically used via direct `agent-browser` CL
 | `route` | `network route` |
 | `tab close 1` | `tab close t1` (use tab id, not position) |
 | `wait e2` | `wait h1` or `wait 2000` (refs not supported) |
-| Stale refs | Re-snapshot after nav, or use `find text|label|role ...`
+| Stale refs | Re-snapshot after nav, or use `find text|label|role ...` |
+| `snapshot -c` to read a URL (info gathering) | `read <url>` |
+| `eval "document.body.innerText"` for page text | `read <url>` |
+| `web_fetch` tool for page content | `read <url>` via browser tool |
 
 # Full command reference
 ```json
