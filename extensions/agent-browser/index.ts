@@ -1654,7 +1654,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				return new Text(summary, 0, 0);
 			}
 
-			// Expanded: session name + first line of output
+			// Expanded: session name + output
 			const lines: string[] = [summary];
 
 			if (details?.sessionName) {
@@ -1663,9 +1663,14 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 
 			const textContent = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 			if (textContent && textContent.text.length > 0) {
-				const firstLineOnly = textContent.text.split("\n", 1)[0]?.trim();
-				if (firstLineOnly && firstLineOnly.length > 0) {
-					lines.push(theme.fg("toolOutput", firstLineOnly));
+				if (command === "read") {
+					// read command: show full page text
+					lines.push(textContent.text);
+				} else {
+					const firstLineOnly = textContent.text.split("\n", 1)[0]?.trim();
+					if (firstLineOnly && firstLineOnly.length > 0) {
+						lines.push(theme.fg("toolOutput", firstLineOnly));
+					}
 				}
 			}
 
