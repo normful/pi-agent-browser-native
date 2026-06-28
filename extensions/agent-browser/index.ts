@@ -1578,7 +1578,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		name: "browser",
 		label: "Browser",
 		description:
-			"⚠️ READ browser-tool SKILL FIRST. Default browser automation — open URLs, click/fill/type, scrape text (eval), screenshots, batch scripts, cookies/sessions. For diagnostics → chrome-devtools-cli. For E2E tests → playwright-cli.",
+			"⚠️ READ browser-tool SKILL FIRST. Default browser automation — open, click, read page text, fill forms, screenshot, batch scripts, manage cookies/sessions. For diagnostics → chrome-devtools-cli. For E2E tests → playwright-cli.",
 		promptSnippet:
 			"⚠️ READ browser-tool SKILL FIRST. Quick browser automation — open pages, click elements, fill forms, scrape text, screenshots. For diagnostics use chrome-devtools-cli, for E2E tests use playwright-cli.",
 		promptGuidelines: toolPromptGuidelines,
