@@ -29,8 +29,16 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 
 ### Interaction
 - `click <ref>`, `fill <ref> <text>`, `type <ref> <text>`
+- `dblclick <ref>`, `hover <ref>`, `focus <ref>`
 - `press <key>`, `check/uncheck <ref>`
+- `select <ref> <val...>` — dropdown option
+- `drag <src> <dst>` — drag and drop
+- `upload <ref> <files...>`, `download <ref> <path>`
+- `keyboard type <text>` — real keystrokes (no selector)
+- `keyboard inserttext <text>` — insert without key events
 - `scroll up/down/left/right [px]`, `scrollintoview <ref>`
+- `wait <sel|ms>` — CSS selector or milliseconds (refs NOT supported; use CSS selectors like `h1`, `button.submit`)
+- `close [--all]` — close browser (--all closes every session)
 
 ### Extraction
 | Command | Example |
@@ -40,23 +48,42 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 | `get title\|url` | `"Page Title"` |
 | `get value <ref>` | `{"value": "input text"}` |
 | `eval <js>` | Extract anything |
+| `read [url]` | Agent-readable page text (omit URL for current page) |
+| `eval --stdin` | Pipe JS via stdin |
 
 > ⚠️ `get attr` unreliable — use `eval "el.getAttribute('href')"`
+
+**`eval --stdin` (piped JS):**
+```json
+{"args": ["eval", "--stdin"], "stdin": "document.querySelectorAll('a').length"}
+```
 
 ### State
 - `is visible|enabled|checked <ref>` → `true/false`
 
 ### Debug
-- `console`, `errors`, `highlight <ref>`, `screenshot`
+- `console [--clear]` — view console logs
+- `errors [--clear]` — view page errors
+- `highlight <ref>` — highlight element
+- `inspect` — open Chrome DevTools for active page (returns DevTools URL)
+- `clipboard read|write|copy|paste` — works; in headless mode clipboard access may be denied; use headed mode for clipboard ops
 
 ### Settings
-- `set viewport <w> <h>`, `set media dark|light`, `set offline on|off`
+- `set viewport <w> <h>`, `set device <name>`, `set geo <lat> <lng>`
+- `set media dark|light [reduced-motion]`, `set offline [on|off]`
+- `set headers <json>`, `set credentials <user> <pass>`
 
 ### Network
-- `network requests [--clear]`, `network route <url> --body <json>`, `network unroute [url]`
+- `network requests [--clear] [--filter <pattern>]` — inspect requests
+- `network route <url> [--abort|--body <json>] [--resource-type <csv>]` — intercept/mock
+- `network unroute [url]` — remove route
+- `network har <start|stop> [path]` — capture HAR archive
 
 ### Tabs
-- `tab new|list|close|select <n>`
+- `tab [new <url>]` — open new tab
+- `tab list` — list tabs (`t1`, `t2`, ...)
+- `tab close <t1|t2>` — close by tab id (NOT positional int)
+- `tab [<n>]` — switch to tab (by position or id)
 
 ### Multi-step
 ```json
@@ -65,15 +92,86 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 ```
 > ⚠️ `batch` sessions start on `about:blank` — step 1 must be `open <url>`.
 
+To stop on first error:
+```json
+["batch", "--bail"]
+[["open", "url"], ["snapshot", "-i"]]
+```
+
 ### Session Modes
 | Mode | Behavior |
 |------|----------|
 | `auto` | Reuses session — **refs go stale** after nav; re-snapshot before interacting. |
 | `fresh` | Starts on `about:blank` — must `open <url>` first. |
 
+### Find Elements (locator-based)
+Use when refs are stale or you want to locate by semantics without a prior snapshot:
+```
+find <role|text|label|placeholder|alt|title|testid|first|last|nth> <value> <action> [text]
+```
+| Example | Effect |
+|---------|--------|
+| `find text "Submit" click` | Click first element containing text |
+| `find role button click --name "Next"` | Click button by accessible name |
+| `find label "Email" fill "a@b.com"` | Fill input by associated label |
+| `find placeholder "Search" type "query"` | Type into placeholder input |
+| `find first` / `find last` / `find nth 3` | Position-based targeting |
+| `find testid "login-btn" click` | React `data-testid` selectors |
+
+> 📝 `find` performs the `<action>` directly — it does not resolve to a snapshot ref. The `@e…` ref system and `find` are independent locator strategies.
+
+### Mouse
+- `mouse move <x> <y>` — move pointer
+- `mouse down [btn]`, `mouse up [btn]` — press/release button
+- `mouse wheel <dy> [dx]` — scroll wheel
+
+### Screenshot variants
+- `screenshot [path]` — capture page screenshot
+- `screenshot --full` — full-page screenshot (scrolls to capture everything)
+- `screenshot --annotate` — numbered labels + legend for vision models (pass `--annotate` as top-level flag, not inside batch step args)
+- `pdf <path>` — save as PDF
+
+### Cookies & Storage
+- `cookies get [--filter <pattern>]` — list cookies
+- `cookies set <name> <value> [--url <url> --domain <d> --path <p> --httpOnly --secure --sameSite <s> --expires <n>]`
+- `cookies set --curl <file>` — import from cookie file (auto-detects JSON/cURL/Netscape)
+- `cookies clear` — clear all cookies
+- `storage <local|session> [get|set|clear]` — web storage
+
+### Diff
+- `diff snapshot` — tree diff current vs last snapshot
+- `diff screenshot --baseline <path>` — visual diff against baseline image
+- `diff url <u1> <u2>` — compare two pages
+
+### Session & State Persistence
+Persist browser sessions across invocations:
+- `--profile <name|path>` — Chrome profile for login state
+- `--restore [key]` — auto-save/restore cookies + storage
+- `--state <path>` — load auth state from JSON file
+- `--session <name>` — isolated session namespace
+- `--namespace <name>` — isolate daemon sockets
+
+> Pass these as top-level flags or set `AGENT_BROWSER_*` env vars. They are not JSON commands — prepend them before the command in `args`.
+
+### Pipeline commands (passthrough to agent-browser CLI)
+These work as JSON commands but are typically used via direct `agent-browser` CLI:
+- `session` / `session list` — inspect active sessions
+- `auth save|login|list|show|delete` — credential vault
+- `plugin add|list|show|run` — plugin management
+- `mcp` — start MCP stdio server
+- `chat <message>` — AI chat (single-shot, needs AI_GATEWAY_API_KEY)
+- `dashboard [start|stop]` — observability dashboard
+- `confirm <id>` / `deny <id>` — approve/deny pending actions
+
 ### Caveats
 - `back` can fail with CDP errors if history is thin; `forward` is more stable.
 - `tab list` may only show `about:blank` in fresh sessions after `tab new <url>`.
+- `wait` with a ref (`e1`) times out — use CSS selectors (`h1`, `button.submit`) or milliseconds.
+- `find role <name>` sometimes fails on simple static pages — `find text` is more reliable for text-matching.
+- `clipboard` requires user gesture permission in headless — use `--headed` or skip clipboard in headless.
+- `screenshot --annotate` must be passed as top-level flag (`--annotate` before `batch`), not inline in batch steps.
+- `session` command works in direct CLI but may not behave as expected when called via this tool wrapper — use `AGENT_BROWSER_SESSION` env var for session management.
+- `read` currently returns page URL rather than full text content — use `eval "document.body.innerText"` for full text extraction.
 
 ## Common Mistakes
 | ❌ Wrong | ✅ Correct |
@@ -82,7 +180,9 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 | `snapshot` | `snapshot -i` |
 | `get attr href e10` | `eval "e10.getAttribute('href')"` |
 | `route` | `network route` |
-| Stale refs | Run `snapshot -i` after nav |
+| `tab close 1` | `tab close t1` (use tab id, not position) |
+| `wait e2` | `wait h1` or `wait 2000` (refs not supported) |
+| Stale refs | Re-snapshot after nav, or use `find text|label|role ...`
 
 # Full command reference
 ```json
