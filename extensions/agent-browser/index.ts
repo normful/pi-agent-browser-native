@@ -1911,6 +1911,23 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					});
 					let parseError = parsed.parseError;
 					let presentationEnvelope = parsed.envelope;
+					// When the command is `read` and --json was not auto-injected (or user
+					// omitted it), the upstream output is plain page text, not a JSON envelope.
+					// Treat the raw stdout as the content directly.
+					if (
+						parseError &&
+						executionPlan.commandInfo.command === "read" &&
+						!params.args.includes("--json") &&
+						!processResult.aborted &&
+						!processResult.spawnError &&
+						processResult.exitCode === 0
+					) {
+						const rawText = (processResult.stdout ?? "").trim();
+						if (rawText.length > 0) {
+							parseError = undefined;
+							presentationEnvelope = { success: true, data: { content: rawText } };
+						}
+					}
 					let navigationSummary: NavigationSummary | undefined;
 					if (pinnedBatchUnwrapMode) {
 						const pinnedBatchResult = unwrapPinnedSessionBatchEnvelope({

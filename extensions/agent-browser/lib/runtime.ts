@@ -920,7 +920,8 @@ export function buildExecutionPlan(
 	const startupScopedFlags = getStartupScopedFlags(args);
 	const plainTextInspection = isPlainTextInspectionArgs(args);
 	const commandInfo = parseCommandInfo(args);
-	const effectiveArgs = plainTextInspection ? [...args] : args.includes("--json") ? [] : ["--json"];
+	const autoInjectJson = !plainTextInspection && !args.includes("--json") && commandInfo.command !== "read";
+const effectiveArgs = plainTextInspection ? [...args] : autoInjectJson ? ["--json"] : [];
 	if (invalidValueFlag) {
 		return {
 			commandInfo: {},

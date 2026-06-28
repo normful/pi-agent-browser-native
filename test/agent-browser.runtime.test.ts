@@ -554,6 +554,35 @@ test("writeSecureTempFile enforces the aggregate temp-root disk budget", { concu
 	await cleanupSecureTempArtifacts();
 });
 
+test("buildExecutionPlan skips --json when the command is read without explicit --json", () => {
+	const plan = buildExecutionPlan(["read", "https://example.com"], {
+		freshSessionName: createFreshSessionName("piab-demo-123", "seed", 1),
+		managedSessionActive: false,
+		managedSessionName: "piab-demo-123",
+		sessionMode: "auto",
+	});
+
+	assert.equal(plan.effectiveArgs.includes("--json"), false, "should not inject --json for read");
+	assert.ok(plan.effectiveArgs.includes("read"), "should keep the read command");
+	assert.ok(plan.effectiveArgs.includes("https://example.com"), "should keep the URL");
+	assert.equal(plan.managedSessionName, "piab-demo-123");
+	assert.equal(plan.sessionName, "piab-demo-123");
+	assert.equal(plan.usedImplicitSession, true);
+	assert.equal(plan.validationError, undefined);
+});
+
+test("buildExecutionPlan respects explicit --json with read command", () => {
+	const plan = buildExecutionPlan(["--json", "read", "https://example.com"], {
+		freshSessionName: createFreshSessionName("piab-demo-123", "seed", 1),
+		managedSessionActive: false,
+		managedSessionName: "piab-demo-123",
+		sessionMode: "auto",
+	});
+
+	assert.equal(plan.effectiveArgs.includes("--json"), true, "should preserve explicit --json");
+	assert.equal(plan.usedImplicitSession, true);
+});
+
 test("buildExecutionPlan injects --json and the implicit session when needed", () => {
 	const plan = buildExecutionPlan(["open", "https://example.com"], {
 		freshSessionName: createFreshSessionName("piab-demo-123", "seed", 1),
