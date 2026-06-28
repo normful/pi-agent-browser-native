@@ -485,6 +485,61 @@ test("buildToolPresentation formats scalar extraction results for eval and get c
 	assert.equal(getPresentation.summary, "Title: Example Domain");
 });
 
+test("buildToolPresentation displays read command content directly", async () => {
+	const content = "# Example Domain\n\nThis domain is for use in illustrative examples.";
+	const presentation = await buildToolPresentation({
+		commandInfo: { command: "read" },
+		cwd: process.cwd(),
+		envelope: {
+			success: true,
+			data: {
+				content,
+				contentType: "text/html; charset=utf-8",
+				finalUrl: "https://example.com/",
+				status: 200,
+				url: "https://example.com/",
+			},
+		},
+	});
+	assert.equal(presentation.content[0]?.type, "text");
+	assert.equal((presentation.content[0] as { text: string }).text, content);
+	assert.match(presentation.summary, /https:\/\/example.com\//);
+});
+
+test("buildToolPresentation surfaces get text result from data.text field", async () => {
+	const presentation = await buildToolPresentation({
+		commandInfo: { command: "get", subcommand: "text" },
+		cwd: process.cwd(),
+		envelope: {
+			success: true,
+			data: {
+				origin: "https://example.com/",
+				text: "Hello, world!",
+			},
+		},
+	});
+	assert.equal(presentation.content[0]?.type, "text");
+	assert.equal((presentation.content[0] as { text: string }).text, "Hello, world!\n\nOrigin: https://example.com/");
+	assert.equal(presentation.summary, "Text: Hello, world!");
+});
+
+test("buildToolPresentation surfaces get value result from data.value field", async () => {
+	const presentation = await buildToolPresentation({
+		commandInfo: { command: "get", subcommand: "value" },
+		cwd: process.cwd(),
+		envelope: {
+			success: true,
+			data: {
+				origin: "https://example.com/",
+				value: "user@example.com",
+			},
+		},
+	});
+	assert.equal(presentation.content[0]?.type, "text");
+	assert.equal((presentation.content[0] as { text: string }).text, "user@example.com\n\nOrigin: https://example.com/");
+	assert.equal(presentation.summary, "Value: user@example.com");
+});
+
 test("buildToolPresentation formats session status and session list", async () => {
 	const current = await buildToolPresentation({
 		commandInfo: { command: "session" },
