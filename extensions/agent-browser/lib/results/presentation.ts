@@ -1540,9 +1540,17 @@ async function compactLargePresentationOutput(options: {
 	let fullOutputPath: string | undefined;
 	let spill: LargeOutputSpillWriteResult | undefined;
 	let spillErrorText: string | undefined;
+	// When read command produces plain text (no --json), data is { content: rawText }.
+	// Spill as raw .txt instead of a JSON wrapper with a single content key.
+	const spillData =
+		options.commandInfo.command === "read" &&
+		isRecord(options.data) &&
+		typeof options.data.content === "string"
+			? options.data.content
+			: options.data;
 	try {
 		spill = await writeLargeOutputSpillFile({
-			data: options.data,
+			data: spillData,
 			persistentArtifactStore: options.persistentArtifactStore,
 			text,
 		});
