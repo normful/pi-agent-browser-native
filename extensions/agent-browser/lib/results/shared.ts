@@ -136,13 +136,8 @@ export function buildEvictedSessionArtifactEntries(
 	}));
 }
 
-export function formatSessionArtifactRetentionSummary(manifest: SessionArtifactManifest): string {
-	const ephemeralCount = manifest.entries.filter((entry) => entry.retentionState === "ephemeral").length;
-	const missingCount = manifest.entries.filter((entry) => entry.retentionState === "missing").length;
-	const parts = [`${manifest.liveCount} live`, `${manifest.evictedCount} evicted`];
-	if (ephemeralCount > 0) parts.push(`${ephemeralCount} ephemeral`);
-	if (missingCount > 0) parts.push(`${missingCount} missing`);
-	return `Session artifacts: ${parts.join(", ")} (${manifest.entries.length}/${manifest.maxEntries} recent).`;
+export function formatSessionArtifactRetentionSummary(_manifest: SessionArtifactManifest): string {
+	return "";
 }
 
 export function mergeSessionArtifactManifest(options: {
