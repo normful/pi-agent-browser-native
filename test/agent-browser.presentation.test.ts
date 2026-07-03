@@ -925,7 +925,7 @@ test("buildToolPresentation records explicit saved files in the bounded session 
 		assert.equal(presentation.artifactManifest?.entries[0]?.kind, "download");
 		assert.equal(presentation.artifactManifest?.entries[0]?.storageScope, "explicit-path");
 		assert.equal(presentation.artifactManifest?.entries[0]?.retentionState, "live");
-		assert.match(presentation.artifactRetentionSummary ?? "", /1 live, 0 evicted/);
+		assert.strictEqual(presentation.artifactRetentionSummary, "");
 		assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Session artifacts: 1 live, 0 evicted/);
 	} finally {
 		await rm(tempDir, { force: true, recursive: true });
@@ -985,7 +985,7 @@ test("buildToolPresentation reports the configured artifact manifest recent wind
 		});
 
 		assert.equal(presentation.artifactManifest?.maxEntries, 3);
-		assert.match(presentation.artifactRetentionSummary ?? "", /\(1\/3 recent\)/);
+		assert.strictEqual(presentation.artifactRetentionSummary, "");
 		assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Session artifacts: .*\(1\/3 recent\)/);
 	});
 });
@@ -1222,7 +1222,7 @@ test("buildToolPresentation does not re-append old artifact retention noise for 
 		const text = (presentation.content[0] as { text: string }).text;
 		assert.match(text, /Downloaded file: export\.csv/);
 		assert.doesNotMatch(text, /Session artifacts:/);
-		assert.match(presentation.artifactRetentionSummary ?? "", /1 live, 1 evicted/);
+		assert.strictEqual(presentation.artifactRetentionSummary, "");
 	} finally {
 		await rm(tempDir, { force: true, recursive: true });
 	}
@@ -1493,8 +1493,8 @@ test("buildToolPresentation evicts the oldest persisted snapshot spill files whe
 				),
 				true,
 			);
-			assert.match(secondPresentation.artifactRetentionSummary ?? "", /1 live, 1 evicted/);
-			assert.match((secondPresentation.content[0] as { text: string }).text, /Session artifacts: 1 live, 1 evicted/);
+			assert.strictEqual(secondPresentation.artifactRetentionSummary, "");
+			assert.doesNotMatch((secondPresentation.content[0] as { text: string }).text, /Session artifacts: 1 live, 1 evicted/);
 		});
 	} finally {
 		await cleanupSecureTempArtifacts();

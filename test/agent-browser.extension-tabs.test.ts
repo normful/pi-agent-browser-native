@@ -62,7 +62,7 @@ test("agentBrowserExtension persists compact snapshot spill files for persisted 
 			assert.equal(manifest?.entries?.[0]?.path, spillPath);
 			assert.equal(manifest?.entries?.[0]?.retentionState, "live");
 			assert.equal(manifest?.entries?.[0]?.storageScope, "persistent-session");
-			assert.match(String(result.details?.artifactRetentionSummary), /1 live, 0 evicted/);
+			assert.strictEqual(String(result.details?.artifactRetentionSummary), "");
 			await runExtensionEvent(harness.handlers, "session_shutdown");
 			assert.match(await readFile(String(spillPath), "utf8"), /Extension persisted snapshot row 120/);
 		});
@@ -137,7 +137,7 @@ process.stdout.write(JSON.stringify({ success: true, data }));`,
 			assert.equal(manifest?.evictedCount, 1);
 			assert.equal(manifest?.entries?.some((entry) => entry.path === firstPath && entry.retentionState === "evicted"), true);
 			assert.equal(manifest?.entries?.some((entry) => entry.path === secondPath && entry.retentionState === "live"), true);
-			assert.match(String(secondResult.details?.artifactRetentionSummary), /1 live, 1 evicted/);
+			assert.strictEqual(String(secondResult.details?.artifactRetentionSummary), "");
 		});
 	} finally {
 		await cleanupSecureTempArtifacts();
