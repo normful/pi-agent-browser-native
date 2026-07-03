@@ -9,18 +9,26 @@ Browser automation tool. Commands are JSON arrays (one per line), not bash comma
 
 # Essential Workflows
 
-**Information gathering** (you want page contents, not interaction):
+## Information gathering (page contents, not interaction)
+
 ```json
 ["read", "<url>"]
 ```
-Clean, agent-readable text. Renders JS, handles SPAs, respects cookies/sessions. Replaces `web_fetch`.
+Renders JS, handles SPAs, respects cookies/sessions. Replaces `web_fetch`.
 
-**Interaction / testing** (you need to click, fill, navigate):
+## Interaction / testing (click, fill, navigate)
+
+**⚠️ Multi-step requires `--session <session-id>`** on every invocation. Choose your own `session-id`.
+
 ```json
-["open", "<url>"]
-["snapshot", "-i"]
-["click", "e5"]
+["--session", "sess1", "open", "<url>"]
+["--session", "sess1", "snapshot", "-i"]
+["--session", "sess1", "click", "e5"]
 ```
+
+**⚠️ The tool never prints or returns its session ID.** `sessionMode=auto` defaults to a session named `"default"` but silently resets to `about:blank` between commands. You must pass `--session <session-id>` **every** multi-step command to maintain state.
+
+One-shot commands (`read <url>`) don't need session ID.
 
 ## Commands
 
@@ -94,24 +102,22 @@ Clean, agent-readable text. Renders JS, handles SPAs, respects cookies/sessions.
 - `tab close <t1|t2>` — close by tab id (NOT positional int)
 - `tab [<n>]` — switch to tab (by position or id)
 
-### Multi-step
-```json
-["batch"]
-[["open", "url"], ["snapshot", "-i"], ["click", "e3"]]
-```
-> ⚠️ `batch` sessions start on `about:blank` — step 1 must be `open <url>`.
+### Multi-step (`batch`)
 
-To stop on first error:
+⚠️ Each step must be a **JSON-encoded string** (tool's `args` is `string[]`), not a nested array:
+
 ```json
-["batch", "--bail"]
-[["open", "url"], ["snapshot", "-i"]]
+["--session", "sess1", "batch", "[\"open\", \"url\"]", "[\"snapshot\", \"-i\"]"]
 ```
+
+`--bail` stops on first error. Steps always start on `about:blank` — step 1 must be `open <url>`.
 
 ### Session Modes
-| Mode | Behavior |
-|------|----------|
-| `auto` | Reuses session — **refs go stale** after nav; re-snapshot before interacting. |
-| `fresh` | Starts on `about:blank` — must `open <url>` first. |
+| Mode | `--session <name>`? | Behavior |
+|------|---------------------|----------|
+| `auto` (default) | No | ❌ Silently opens `about:blank` — tab reuse broken. Session name is `"default"` but not printed. |
+| `auto` | Yes | ✅ Reuses session. Refs go stale after nav — re-snapshot. |
+| `fresh` | — | Starts on `about:blank` — must `open <url>` first. |
 
 ### Find Elements (locator-based)
 Use when refs are stale or you want to locate by semantics without a prior snapshot:
@@ -181,7 +187,6 @@ These work as JSON commands but are typically used via direct `agent-browser` CL
 - `screenshot --annotate` must be passed as top-level flag (`--annotate` before `batch`), not inline in batch steps.
 - `session` command works in direct CLI but may not behave as expected when called via this tool wrapper — use `AGENT_BROWSER_SESSION` env var for session management.
 
-
 ## Common Mistakes
 | ❌ Wrong | ✅ Correct |
 |---------|-----------|
@@ -195,6 +200,9 @@ These work as JSON commands but are typically used via direct `agent-browser` CL
 | `snapshot -c` to read a URL (info gathering) | `read <url>` |
 | `eval "document.body.innerText"` for page text | `read <url>` |
 | `web_fetch` tool for page content | `read <url>` via browser tool |
+| `auto` without `--session` (expecting tab reuse) | Prepend `--session <name>` to every multi-step command |
+| Not knowing the session ID (tool never prints it) | Pass `--session <name>` explicitly; run `agent-browser session` to check |
+| `batch` with nested arrays | Use JSON-encoded strings: `"[\"open\", \"url\"]"` |
 
 # Full command reference
 ```json
