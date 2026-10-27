@@ -1335,6 +1335,7 @@ test("agentBrowserExtension replays a managed-session --namespace to helper call
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
   args,
+  idleTimeout: process.env.AGENT_BROWSER_IDLE_TIMEOUT_MS ?? null,
   namespace: process.env.AGENT_BROWSER_NAMESPACE ?? null,
 }) + "\\n");
 if (args.includes("tab") && args.includes("list")) {
@@ -1368,11 +1369,17 @@ if (args.includes("tab") && args.includes("list")) {
 			const invocations = await readInvocationLog(logPath);
 			const closeInvocation = invocations.find((entry) => entry.args.includes("close"));
 			assert.ok(closeInvocation, "expected the shutdown close invocation");
+			const expectedIdleTimeoutEnv = String(getImplicitSessionIdleTimeoutMs());
 			for (const entry of invocations) {
 				assert.equal(
 					entry.namespace,
 					"work",
 					`every managed-session invocation must replay the namespace: ${entry.args.join(" ")}`,
+				);
+				assert.equal(
+					entry.idleTimeout,
+					expectedIdleTimeoutEnv,
+					`every managed-session invocation must send the same idle timeout: ${entry.args.join(" ")}`,
 				);
 			}
 		});
