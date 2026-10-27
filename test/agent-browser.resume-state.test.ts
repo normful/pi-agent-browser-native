@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { getImplicitSessionIdleTimeoutMs } from "../extensions/agent-browser/lib/runtime.js";
 import {
 	createExtensionHarness,
 	createToolBranchEntry,
@@ -1260,6 +1261,127 @@ if (args.includes("tab") && args.includes("list")) {
 			assert.equal(invocations[0]?.args.includes("--session-name"), true);
 			assert.deepEqual(invocations[1]?.args?.slice(-2), ["tab", "list"]);
 			assert.deepEqual(invocations[2]?.args?.slice(-2), ["tab", "t1"]);
+		});
+	} finally {
+		await rm(tempDir, { force: true, recursive: true });
+	}
+});
+
+test("agentBrowserExtension sends the same managed-session launch environment to helper calls", { concurrency: false }, async () => {
+	// agent-browser 0.31.0+ restarts a daemon whose configuration differs from the incoming one,
+	// which relaunches the browser and loses the open page. Helper calls (tab list, get title/url,
+	// close) must therefore send exactly the environment the main tool call sent.
+	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-test-"));
+	const logPath = join(tempDir, "invocations.log");
+	const basePath = process.env.PATH ?? "";
+	await writeFakeAgentBrowserBinary(
+		tempDir,
+		`const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
+  args,
+  idleTimeout: process.env.AGENT_BROWSER_IDLE_TIMEOUT_MS ?? null,
+}) + "\\n");
+if (args.includes("tab") && args.includes("list")) {
+  process.stdout.write(JSON.stringify({ success: true, data: { tabs: [
+    { tabId: "t1", title: "Example Domain", url: "https://example.com/", active: true }
+  ] } }));
+} else {
+  process.stdout.write(JSON.stringify({ success: true, data: { title: "Example Domain", url: "https://example.com/" } }));
+}`,
+	);
+
+	try {
+		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+			const harness = createExtensionHarness({ cwd: tempDir });
+			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+
+			const expectedIdleTimeoutEnv = String(getImplicitSessionIdleTimeoutMs());
+			const opened = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["open", "https://example.com"] });
+			assert.equal(opened.isError, false);
+
+			const snapshot = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["snapshot", "-i"] });
+			assert.equal(snapshot.isError, false);
+
+			const invocations = await readInvocationLog(logPath);
+			assert.ok(invocations.length >= 3, `expected main and helper invocations, got ${invocations.length}`);
+			assert.equal(
+				invocations.some((entry) => entry.args.includes("tab") && entry.args.includes("list")),
+				true,
+				"expected a tab list helper invocation",
+			);
+			for (const entry of invocations) {
+				assert.equal(
+					entry.idleTimeout,
+					expectedIdleTimeoutEnv,
+					`every managed-session invocation must send the same AGENT_BROWSER_IDLE_TIMEOUT_MS: ${entry.args.join(" ")}`,
+				);
+			}
+		});
+	} finally {
+		await rm(tempDir, { force: true, recursive: true });
+	}
+});
+
+test("agentBrowserExtension replays a managed-session --namespace to helper calls and the shutdown close", { concurrency: false }, async () => {
+	// `--namespace` isolates daemon sockets, so a helper call without it starts a second daemon in
+	// the default namespace and loses the open page; the close would then orphan the namespaced one.
+	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-namespace-"));
+	const logPath = join(tempDir, "invocations.log");
+	const basePath = process.env.PATH ?? "";
+	await writeFakeAgentBrowserBinary(
+		tempDir,
+		`const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
+  args,
+  idleTimeout: process.env.AGENT_BROWSER_IDLE_TIMEOUT_MS ?? null,
+  namespace: process.env.AGENT_BROWSER_NAMESPACE ?? null,
+}) + "\\n");
+if (args.includes("tab") && args.includes("list")) {
+  process.stdout.write(JSON.stringify({ success: true, data: { tabs: [
+    { tabId: "t1", title: "Example Domain", url: "https://example.com/", active: true }
+  ] } }));
+} else if (args.includes("snapshot")) {
+  process.stdout.write(JSON.stringify({ success: true, data: { origin: "https://example.com/", refs: {}, snapshot: "- heading \\"Example\\" [ref=e1]" } }));
+} else {
+  process.stdout.write(JSON.stringify({ success: true, data: { title: "Example Domain", url: "https://example.com/" } }));
+}`,
+	);
+
+	try {
+		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+			const harness = createExtensionHarness({ cwd: tempDir });
+			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+
+			const opened = await executeRegisteredTool(harness.tool, harness.ctx, {
+				args: ["--namespace", "work", "open", "https://example.com"],
+				sessionMode: "fresh",
+			});
+			assert.equal(opened.isError, false);
+			assert.equal(opened.details?.sessionNamespace, "work");
+
+			const snapshot = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["snapshot", "-i"] });
+			assert.equal(snapshot.isError, false);
+
+			await runExtensionEvent(harness.handlers, "session_shutdown", { reason: "quit" }, harness.ctx);
+
+			const invocations = await readInvocationLog(logPath);
+			const closeInvocation = invocations.find((entry) => entry.args.includes("close"));
+			assert.ok(closeInvocation, "expected the shutdown close invocation");
+			const expectedIdleTimeoutEnv = String(getImplicitSessionIdleTimeoutMs());
+			for (const entry of invocations) {
+				assert.equal(
+					entry.namespace,
+					"work",
+					`every managed-session invocation must replay the namespace: ${entry.args.join(" ")}`,
+				);
+				assert.equal(
+					entry.idleTimeout,
+					expectedIdleTimeoutEnv,
+					`every managed-session invocation must send the same idle timeout: ${entry.args.join(" ")}`,
+				);
+			}
 		});
 	} finally {
 		await rm(tempDir, { force: true, recursive: true });

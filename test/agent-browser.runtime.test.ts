@@ -17,10 +17,13 @@ import test from "node:test";
 import { isRecord, parsePositiveInteger } from "../extensions/agent-browser/lib/parsing.js";
 import { getAgentBrowserSocketDir } from "../extensions/agent-browser/lib/process.js";
 import {
+	buildBareRestoreWarning,
 	buildExecutionPlan,
 	buildPromptPolicy,
 	createFreshSessionName,
 	createImplicitSessionName,
+	extractCommandTokens,
+	extractNamespaceName,
 	getImplicitSessionCloseTimeoutMs,
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
@@ -32,7 +35,9 @@ import {
 	resolveManagedSessionState,
 	restoreManagedSessionStateFromBranch,
 	shouldAppendBrowserSystemPrompt,
+	TOP_LEVEL_COMMANDS,
 } from "../extensions/agent-browser/lib/runtime.js";
+import { CAPABILITY_BASELINE } from "../scripts/agent-browser-capability-baseline.mjs";
 import {
 	cleanupSecureTempArtifacts,
 	getSecureTempDebugState,
@@ -629,7 +634,23 @@ test("buildExecutionPlan keeps inspection commands stateless", () => {
 });
 
 test("buildExecutionPlan rejects missing values for value-taking flags before parsing commands", () => {
-	for (const args of [["--session"], ["--profile"], ["--session-name"], ["--cdp"], ["--state"], ["--init-script"], ["--enable"]] as const) {
+	for (const args of [
+		["--session"],
+		["--namespace"],
+		["--profile"],
+		["--restore-save"],
+		["--restore-check-url"],
+		["--restore-check-text"],
+		["--restore-check-fn"],
+		["--session-name"],
+		["--cdp"],
+		["--ca-cert"],
+		["--input-mode"],
+		["--idle-timeout"],
+		["--state"],
+		["--init-script"],
+		["--enable"],
+	] as const) {
 		const plan = buildExecutionPlan([...args], {
 			freshSessionName: createFreshSessionName("piab-demo-123", "seed", 1),
 			managedSessionActive: false,
@@ -678,6 +699,10 @@ test("buildExecutionPlan allows dash-starting --args values", () => {
 test("buildExecutionPlan blocks startup-scoped flags from silently reusing an active implicit session", () => {
 	for (const { args, flag } of [
 		{ args: ["--profile", "Default", "open", "https://example.com"], flag: "--profile" },
+		{ args: ["--namespace", "piab-demo", "open", "https://example.com"], flag: "--namespace" },
+		{ args: ["--restore", "open", "https://example.com"], flag: "--restore" },
+		{ args: ["--restore=worktree", "open", "https://example.com"], flag: "--restore" },
+		{ args: ["--restore-save", "always", "open", "https://example.com"], flag: "--restore-save" },
 		{ args: ["--session-name", "saved-auth", "open", "https://example.com"], flag: "--session-name" },
 		{ args: ["--cdp", "ws://127.0.0.1:9222/devtools/browser/demo", "open", "https://example.com"], flag: "--cdp" },
 		{ args: ["--state", "/tmp/auth.json", "open", "https://example.com"], flag: "--state" },
@@ -716,9 +741,13 @@ test("buildExecutionPlan allows disabled auto-connect after an active implicit s
 	assert.deepEqual(plan.commandInfo, { command: "open", subcommand: "https://example.com" });
 });
 
-test("hasLaunchScopedTabCorrectionFlag detects profile, session-name, and state but not cdp or auto-connect", () => {
+test("hasLaunchScopedTabCorrectionFlag detects profile, restore, session-name, and state but not cdp or auto-connect", () => {
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--profile", "Default", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--profile=Default", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore=worktree", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--namespace", "piab-demo", "open", "https://example.com"]), false);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore-save", "always", "open", "https://example.com"]), false);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--session-name", "saved", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--session-name=saved", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--state", "/tmp/auth.json", "open", "https://example.com"]), true);
@@ -733,6 +762,30 @@ test("parseCommandInfo recognizes open targets after command-scoped init flags",
 		command: "open",
 		subcommand: "https://example.com",
 	});
+	assert.deepEqual(parseCommandInfo(["--namespace", "piab-demo", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore=worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "read", "https://example.com"]), {
+		command: "read",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(extractCommandTokens(["--restore", "worktree", "open", "https://example.com"]), [
+		"open",
+		"https://example.com",
+	]);
 	assert.deepEqual(parseCommandInfo(["open", "--init-script", "/tmp/setup.js", "https://example.com"]), {
 		command: "open",
 		subcommand: "https://example.com",
@@ -936,3 +989,114 @@ test("shouldAppendBrowserSystemPrompt only targets clearly browser-oriented prom
 	assert.equal(shouldAppendBrowserSystemPrompt("Please review the repository architecture."), false);
 });
 
+test("shouldAppendBrowserSystemPrompt tolerates prompts absent from extension-triggered runs", () => {
+	// pi >= 1.4.0 fires `before_agent_start` for `pi.sendMessage(..., { triggerTurn: true })`
+	// runs as well; those events carry `message` and no `prompt`, so `event.prompt` is undefined.
+	assert.equal(shouldAppendBrowserSystemPrompt(undefined), false);
+	assert.equal(shouldAppendBrowserSystemPrompt(""), false);
+	assert.equal(shouldAppendBrowserSystemPrompt("   \n\t "), false);
+});
+
+
+// Root-help tokens recorded from upstream help prose rather than a command name.
+const ROOT_HELP_PROSE_TOKENS = new Set(["exposing"]);
+
+test("TOP_LEVEL_COMMANDS covers every root-help command token in the capability baseline", () => {
+	// The set is the only authority for whether the token after `--restore [name]` is a restore key
+	// or the command, so a missing member silently swallows the command (`--restore requests ...`).
+	const rootHelpFirstWords = new Set(
+		CAPABILITY_BASELINE.upstreamExpectations
+			.filter((expectation) => expectation.help === "root help")
+			.map((expectation) => expectation.token.split(/\s+/)[0] ?? "")
+			.filter((word) => /^[a-z]/.test(word) && !ROOT_HELP_PROSE_TOKENS.has(word)),
+	);
+	const missing = [...rootHelpFirstWords].filter((word) => !TOP_LEVEL_COMMANDS.has(word));
+	assert.deepEqual(missing, [], `TOP_LEVEL_COMMANDS is missing baseline root-help commands: ${missing.join(", ")}`);
+});
+
+test("parseCommandInfo keeps the command that follows an optional --restore name", () => {
+	assert.deepEqual(parseCommandInfo(["--restore", "requests"]), { command: "requests", subcommand: undefined });
+	assert.deepEqual(parseCommandInfo(["--restore", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore=worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+});
+
+test("extractNamespaceName reads both flag forms and ignores a missing value", () => {
+	assert.equal(extractNamespaceName(["--namespace", "work", "open", "https://example.com"]), "work");
+	assert.equal(extractNamespaceName(["--namespace=work", "open", "https://example.com"]), "work");
+	assert.equal(extractNamespaceName(["--namespace=", "open", "https://example.com"]), undefined);
+	assert.equal(extractNamespaceName(["--namespace", "--headed", "open", "https://example.com"]), undefined);
+	assert.equal(extractNamespaceName(["open", "https://example.com"]), undefined);
+});
+
+test("buildBareRestoreWarning flags only the nameless restore form", () => {
+	assert.match(buildBareRestoreWarning(["--restore", "open", "https://example.com"]) ?? "", /Pass an explicit `--restore <name>`/);
+	assert.match(buildBareRestoreWarning(["--restore"]) ?? "", /Pass an explicit `--restore <name>`/);
+	assert.equal(buildBareRestoreWarning(["--restore", "worktree", "open", "https://example.com"]), undefined);
+	assert.equal(buildBareRestoreWarning(["--restore=worktree", "open"]), undefined);
+	assert.equal(buildBareRestoreWarning(["open", "https://example.com"]), undefined);
+});
+
+test("restoreManagedSessionStateFromBranch carries the launched namespace until the session closes", () => {
+	const fallbackSessionName = "piab-demo-123";
+	const opened = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: {
+					args: ["--namespace", "work", "open", "https://example.com"],
+					command: "open",
+					sessionMode: "fresh",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					sessionNamespace: "work",
+				},
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(opened.active, true);
+	assert.equal(opened.namespace, "work");
+
+	const closed = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: {
+					args: ["--namespace", "work", "open", "https://example.com"],
+					command: "open",
+					sessionMode: "fresh",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					sessionNamespace: "work",
+				},
+			}),
+			createToolBranchEntry({
+				details: {
+					args: ["close"],
+					command: "close",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					usedImplicitSession: true,
+				},
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(closed.active, false);
+	assert.equal(closed.namespace, undefined);
+
+	const withoutNamespace = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: { args: ["open", "https://example.com"], command: "open", sessionMode: "fresh", sessionName: `${fallbackSessionName}-fresh-abc` },
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(withoutNamespace.namespace, undefined);
+});

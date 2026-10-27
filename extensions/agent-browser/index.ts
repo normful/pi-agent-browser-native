@@ -28,6 +28,7 @@ import {
 	type AgentBrowserEnvelope,
 } from "./lib/results.js";
 import {
+	buildBareRestoreWarning,
 	buildExecutionPlan,
 	buildPromptPolicy,
 	chooseOpenResultTabCorrection,
@@ -35,6 +36,7 @@ import {
 	createFreshSessionName,
 	createImplicitSessionName,
 	extractCommandTokens,
+	extractNamespaceName,
 	getImplicitSessionCloseTimeoutMs,
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
@@ -1240,18 +1242,43 @@ function unwrapPinnedSessionBatchEnvelope(options: {
 	};
 }
 
+/**
+ * Every upstream invocation that addresses a managed session must send the same launch-affecting
+ * environment. agent-browser 0.31.0+ compares the incoming configuration with the running daemon
+ * and restarts it when they differ, which relaunches the browser and loses the open page.
+ *
+ * The idle timeout is resolved once at extension init so a mid-session env change cannot make the
+ * main call and its helper calls disagree. `--namespace` is replayed as `AGENT_BROWSER_NAMESPACE`
+ * because upstream isolates daemon sockets per namespace: without it, later calls start a second
+ * daemon in the default namespace and the open page is gone.
+ */
+function buildManagedSessionProcessEnv(options: {
+	idleTimeoutMs: number;
+	namespace?: string;
+	sessionName: string | undefined;
+}): NodeJS.ProcessEnv | undefined {
+	const { idleTimeoutMs, namespace, sessionName } = options;
+	if (!sessionName) return undefined;
+	return {
+		AGENT_BROWSER_IDLE_TIMEOUT_MS: String(idleTimeoutMs),
+		...(namespace ? { AGENT_BROWSER_NAMESPACE: namespace } : {}),
+	};
+}
+
 async function runSessionCommandData(options: {
 	args: string[];
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	sessionName?: string;
 	signal?: AbortSignal;
 }): Promise<unknown | undefined> {
-	const { args, cwd, sessionName, signal } = options;
+	const { args, cwd, env, sessionName, signal } = options;
 	if (!sessionName) return undefined;
 
 	const processResult = await runAgentBrowserProcess({
 		args: ["--json", "--session", sessionName, ...args],
 		cwd,
+		env,
 		signal,
 	});
 	try {
@@ -1275,16 +1302,17 @@ async function runSessionCommandData(options: {
 
 async function collectNavigationSummary(options: {
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	sessionName?: string;
 	signal?: AbortSignal;
 }): Promise<NavigationSummary | undefined> {
-	const { cwd, sessionName, signal } = options;
+	const { cwd, env, sessionName, signal } = options;
 	const title = extractStringResultField(
-		await runSessionCommandData({ args: ["get", "title"], cwd, sessionName, signal }),
+		await runSessionCommandData({ args: ["get", "title"], cwd, env, sessionName, signal }),
 		"title",
 	);
 	const url = extractStringResultField(
-		await runSessionCommandData({ args: ["get", "url"], cwd, sessionName, signal }),
+		await runSessionCommandData({ args: ["get", "url"], cwd, env, sessionName, signal }),
 		"url",
 	);
 	if (!title && !url) return undefined;
@@ -1300,13 +1328,14 @@ function mergeNavigationSummaryIntoData(data: unknown, navigationSummary: Naviga
 
 async function collectOpenResultTabCorrection(options: {
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	sessionName?: string;
 	signal?: AbortSignal;
 	targetTitle?: string;
 	targetUrl?: string;
 }): Promise<OpenResultTabCorrection | undefined> {
-	const { cwd, sessionName, signal, targetTitle, targetUrl } = options;
-	const tabData = await runSessionCommandData({ args: ["tab", "list"], cwd, sessionName, signal });
+	const { cwd, env, sessionName, signal, targetTitle, targetUrl } = options;
+	const tabData = await runSessionCommandData({ args: ["tab", "list"], cwd, env, sessionName, signal });
 	if (!isRecord(tabData) || !Array.isArray(tabData.tabs)) {
 		return undefined;
 	}
@@ -1323,12 +1352,13 @@ async function collectOpenResultTabCorrection(options: {
 
 async function collectSessionTabSelection(options: {
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	sessionName?: string;
 	signal?: AbortSignal;
 	target: SessionTabTarget;
 }): Promise<OpenResultTabCorrection | undefined> {
-	const { cwd, sessionName, signal, target } = options;
-	const tabData = await runSessionCommandData({ args: ["tab", "list"], cwd, sessionName, signal });
+	const { cwd, env, sessionName, signal, target } = options;
+	const tabData = await runSessionCommandData({ args: ["tab", "list"], cwd, env, sessionName, signal });
 	if (!isRecord(tabData) || !Array.isArray(tabData.tabs)) {
 		return undefined;
 	}
@@ -1346,13 +1376,15 @@ async function collectSessionTabSelection(options: {
 async function applyOpenResultTabCorrection(options: {
 	correction: OpenResultTabCorrection;
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	sessionName?: string;
 	signal?: AbortSignal;
 }): Promise<OpenResultTabCorrection | undefined> {
-	const { correction, cwd, sessionName, signal } = options;
+	const { correction, cwd, env, sessionName, signal } = options;
 	const result = await runSessionCommandData({
 		args: ["tab", correction.selectedTab],
 		cwd,
+		env,
 		sessionName,
 		signal,
 	});
@@ -1481,7 +1513,13 @@ class AsyncExecutionQueue {
 	}
 }
 
-async function closeManagedSession(options: { cwd: string; sessionName: string; timeoutMs: number }): Promise<void> {
+async function closeManagedSession(options: {
+	cwd: string;
+	idleTimeoutMs: number;
+	namespace?: string;
+	sessionName: string;
+	timeoutMs: number;
+}): Promise<void> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs);
 	let stdoutSpillPath: string | undefined;
@@ -1489,6 +1527,11 @@ async function closeManagedSession(options: { cwd: string; sessionName: string; 
 		const processResult = await runAgentBrowserProcess({
 			args: ["--session", options.sessionName, "close"],
 			cwd: options.cwd,
+			env: buildManagedSessionProcessEnv({
+				idleTimeoutMs: options.idleTimeoutMs,
+				namespace: options.namespace,
+				sessionName: options.sessionName,
+			}),
 			signal: controller.signal,
 		});
 		stdoutSpillPath = processResult.stdoutSpillPath;
@@ -1505,12 +1548,15 @@ async function closeManagedSession(options: { cwd: string; sessionName: string; 
 export default function agentBrowserExtension(pi: ExtensionAPI) {
 	const ephemeralSessionSeed = createEphemeralSessionSeed();
 	const toolPromptGuidelines = buildToolPromptGuidelines();
-	const implicitSessionIdleTimeoutMs = String(getImplicitSessionIdleTimeoutMs());
 	const implicitSessionCloseTimeoutMs = getImplicitSessionCloseTimeoutMs();
+	// Resolved once: agent-browser restarts the daemon when the incoming launch configuration
+	// differs from the running one, so every call in this session must send the same value.
+	const implicitSessionIdleTimeoutMs = getImplicitSessionIdleTimeoutMs();
 	let managedSessionActive = false;
 	let managedSessionBaseName = createImplicitSessionName(undefined, process.cwd(), ephemeralSessionSeed);
 	let managedSessionName = managedSessionBaseName;
 	let managedSessionCwd = process.cwd();
+	let managedSessionNamespace: string | undefined;
 	let freshSessionOrdinal = 0;
 	let sessionTabTargets = new Map<string, OrderedSessionTabTarget>();
 	let sessionTabTargetUpdateOrder = 0;
@@ -1524,6 +1570,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		managedSessionActive = restoredState.active;
 		managedSessionName = restoredState.sessionName;
 		managedSessionCwd = ctx.cwd;
+		managedSessionNamespace = restoredState.namespace;
 		freshSessionOrdinal = restoredState.freshSessionOrdinal;
 		sessionTabTargets = restoreSessionTabTargetsFromBranch(ctx.sessionManager.getBranch());
 		sessionTabTargetUpdateOrder = getLatestSessionTabTargetOrder(sessionTabTargets);
@@ -1536,12 +1583,15 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				if (!managedSessionActive) return;
 				await closeManagedSession({
 					cwd: managedSessionCwd,
+					idleTimeoutMs: implicitSessionIdleTimeoutMs,
+					namespace: managedSessionNamespace,
 					sessionName: managedSessionName,
 					timeoutMs: implicitSessionCloseTimeoutMs,
 				});
 			});
 		}
 		managedSessionActive = false;
+		managedSessionNamespace = undefined;
 		sessionTabTargets = new Map<string, OrderedSessionTabTarget>();
 		sessionTabTargetUpdateOrder = 0;
 		traceOwners = new Map<string, TraceOwner>();
@@ -1550,6 +1600,13 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event) => {
+		// pi >= 1.4.0 also fires this event for runs started by another extension's
+		// `pi.sendMessage(..., { triggerTurn: true })`; those events carry `message`, not `prompt`.
+		// Skip only that variant: hosts that fire the event without `messageType` are still user
+		// runs and must keep the project rule that the bash guard below enforces.
+		if (event.messageType === "custom") {
+			return undefined;
+		}
 		if (!shouldAppendBrowserSystemPrompt(event.prompt)) {
 			return undefined;
 		}
@@ -1785,6 +1842,15 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					};
 				}
 
+				// Helper calls below talk to the same daemon, so they must send the same launch environment.
+				// A namespace passed on this call wins; otherwise the managed session keeps the one it was
+				// launched with, so later calls still address the same namespaced daemon.
+				const callNamespace = extractNamespaceName(preparedArgs.args) ?? managedSessionNamespace;
+				const sessionProcessEnv = buildManagedSessionProcessEnv({
+					idleTimeoutMs: implicitSessionIdleTimeoutMs,
+					namespace: callNamespace,
+					sessionName: executionPlan.managedSessionName,
+				});
 				const priorSessionTabTargetState = executionPlan.sessionName ? sessionTabTargets.get(executionPlan.sessionName) : undefined;
 				const priorSessionTabTarget = priorSessionTabTargetState?.target;
 				let pinnedBatchUnwrapMode: PinnedBatchUnwrapMode | undefined;
@@ -1803,6 +1869,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				) {
 					const plannedSessionTabSelection = await collectSessionTabSelection({
 						cwd: ctx.cwd,
+						env: sessionProcessEnv,
 						sessionName: executionPlan.sessionName,
 						signal,
 						target: priorSessionTabTarget,
@@ -1812,6 +1879,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 							const appliedSessionTabSelection = await applyOpenResultTabCorrection({
 								correction: plannedSessionTabSelection,
 								cwd: ctx.cwd,
+								env: sessionProcessEnv,
 								sessionName: executionPlan.sessionName,
 								signal,
 							});
@@ -1882,7 +1950,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				const processResult = await runAgentBrowserProcess({
 					args: processArgs,
 					cwd: ctx.cwd,
-					env: executionPlan.managedSessionName ? { AGENT_BROWSER_IDLE_TIMEOUT_MS: implicitSessionIdleTimeoutMs } : undefined,
+					env: sessionProcessEnv,
 					signal,
 					stdin: processStdin,
 				});
@@ -1981,6 +2049,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					if (succeeded && !navigationSummary && shouldCaptureNavigationSummary(executionPlan.commandInfo.command, presentationEnvelope?.data)) {
 						navigationSummary = await collectNavigationSummary({
 							cwd: ctx.cwd,
+							env: sessionProcessEnv,
 							sessionName: executionPlan.sessionName,
 							signal,
 						});
@@ -2005,6 +2074,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 						const targetUrl = extractStringResultField(presentationEnvelope?.data, "url");
 						const plannedTabCorrection = await collectOpenResultTabCorrection({
 							cwd: ctx.cwd,
+							env: sessionProcessEnv,
 							sessionName: executionPlan.sessionName,
 							signal,
 							targetTitle,
@@ -2014,6 +2084,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 							openResultTabCorrection = await applyOpenResultTabCorrection({
 								correction: plannedTabCorrection,
 								cwd: ctx.cwd,
+								env: sessionProcessEnv,
 								sessionName: executionPlan.sessionName,
 								signal,
 							});
@@ -2040,6 +2111,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					if (shouldTreatAboutBlankAsMismatch && priorSessionTabTarget) {
 						const aboutBlankRecovery = await collectSessionTabSelection({
 							cwd: ctx.cwd,
+							env: sessionProcessEnv,
 							sessionName: executionPlan.sessionName,
 							signal,
 							target: priorSessionTabTarget,
@@ -2048,6 +2120,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 							? await applyOpenResultTabCorrection({
 									correction: aboutBlankRecovery,
 									cwd: ctx.cwd,
+									env: sessionProcessEnv,
 									sessionName: executionPlan.sessionName,
 									signal,
 							  })
@@ -2078,6 +2151,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					) {
 						const postCommandTabCorrection = await collectSessionTabSelection({
 							cwd: ctx.cwd,
+							env: sessionProcessEnv,
 							sessionName: executionPlan.sessionName,
 							signal,
 							target: observedSessionTabTarget,
@@ -2086,6 +2160,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 							const appliedPostCommandCorrection = await applyOpenResultTabCorrection({
 								correction: postCommandTabCorrection,
 								cwd: ctx.cwd,
+								env: sessionProcessEnv,
 								sessionName: executionPlan.sessionName,
 								signal,
 							});
@@ -2106,6 +2181,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					}
 
 					const priorManagedSessionCwd = managedSessionCwd;
+					const priorManagedSessionNamespace = managedSessionNamespace;
 					const managedSessionState = resolveManagedSessionState({
 						command: executionPlan.commandInfo.command,
 						managedSessionName: executionPlan.managedSessionName,
@@ -2118,11 +2194,21 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					managedSessionName = managedSessionState.sessionName;
 					if (executionPlan.managedSessionName && succeeded) {
 						managedSessionCwd = ctx.cwd;
+						// Only adopt a namespace from the launch that created the session; a later call
+						// cannot change it, and a close releases it so the next launch uses the default.
+						if (callNamespace !== undefined) {
+							managedSessionNamespace = callNamespace;
+						}
+					}
+					if (!managedSessionActive) {
+						managedSessionNamespace = undefined;
 					}
 					if (replacedManagedSessionName) {
 						sessionTabTargets.delete(replacedManagedSessionName);
 						await closeManagedSession({
 							cwd: priorManagedSessionCwd,
+							idleTimeoutMs: implicitSessionIdleTimeoutMs,
+							namespace: priorManagedSessionNamespace,
 							sessionName: replacedManagedSessionName,
 							timeoutMs: implicitSessionCloseTimeoutMs,
 						});
@@ -2191,13 +2277,17 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					if (presentation.artifactManifest) {
 						artifactManifest = presentation.artifactManifest;
 					}
-					const warningText = aboutBlankSessionMismatch ? buildAboutBlankWarning(aboutBlankSessionMismatch) : undefined;
+					const warningTexts = [
+						executionPlan.managedSessionName ? buildBareRestoreWarning(preparedArgs.args) : undefined,
+						aboutBlankSessionMismatch ? buildAboutBlankWarning(aboutBlankSessionMismatch) : undefined,
+					].filter((text): text is string => typeof text === "string");
+					const warningText = warningTexts.length > 0 ? warningTexts.join("\n\n") : undefined;
 					const contentWithSessionWarnings = userRequestedJson && !plainTextInspection
 						? buildJsonVisibleContent({
 								error: presentationEnvelope?.error,
 								presentation,
 								succeeded,
-								warnings: warningText ? [warningText] : undefined,
+								warnings: warningTexts.length > 0 ? warningTexts : undefined,
 						  })
 						: warningText
 							? [...presentation.content]
@@ -2246,6 +2336,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 						savedFile: presentation.savedFile,
 						savedFilePath: presentation.savedFilePath,
 						sessionMode,
+						sessionNamespace: executionPlan.managedSessionName ? callNamespace : undefined,
 						sessionTabCorrection,
 						sessionTabTarget: currentSessionTabTarget,
 						...buildSessionDetailFields(executionPlan.sessionName, executionPlan.usedImplicitSession),

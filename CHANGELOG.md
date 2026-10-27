@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+- fixed the extension reporting `Cannot read properties of undefined (reading 'trim')` whenever another extension started a run with `pi.sendMessage(..., { triggerTurn: true })`: the `before_agent_start` handler now injects the project rule only for user prompts, and the prompt classifier tolerates an absent `prompt`
+- fixed wrapper-spawned helper calls (`get title`/`get url` summaries, `tab list` pin and correction probes, managed-session `close`) sending a different launch environment than the main tool call: agent-browser 0.31.0 and later restart a daemon whose configuration differs from the incoming one, which relaunched the browser and lost the open page after the first tool call
+- fixed a managed session launched with `--namespace` losing its page on the next tool call: the namespace is now replayed as `AGENT_BROWSER_NAMESPACE` for later calls and for the quit-time `close`, instead of addressing a second daemon in the default namespace
+- fixed an unchanged `screenshot --if-changed` capture attaching the previous image bytes and registering the kept file as a freshly created live artifact; an unchanged capture now attaches no image and writes no manifest entry
+- fixed `snapshot --delta` rendering as an empty snapshot: the `{kind: "full"|"unchanged"}` object form now renders its refs and tree, or reports `Snapshot unchanged (revision N, baseline M)`
+- fixed the resolved managed-session idle timeout being re-read from the environment on every call, so a mid-session env change can no longer make the main call and its helper calls disagree
+- fixed older pi hosts losing the project rule: `before_agent_start` now skips only `messageType: "custom"` runs instead of treating an absent `messageType` as extension-triggered
+- fixed `--restore requests …` swallowing the command: `requests` is now a known top-level command, and a test checks the command table against the capability baseline
+- added a warning when `--restore` is used without a name on the managed session, where the generated session name makes the restore key useless across pi sessions
+
+### Changed
+- `--input-mode`, `--restore-save`, `--namespace`, and the other launch-scoped flags now record why they are or are not part of the tab-correction subset
+- collapsed newlines in page-controlled accessibility help text and WebMCP tool metadata so a page cannot fabricate wrapper-looking output lines
+
+### Compatibility
+- moved the pi development baseline from `@earendil-works/*` `0.74.0` to `1.4.0`, where `before_agent_start` is a union of user-prompt and custom-message runs, so `tsc` now rejects handlers that read `event.prompt` without narrowing on `messageType`
+- moved the upstream capability baseline and command reference from `agent-browser` `0.27.0` to `0.38.2`, adding `read [url]`, `a11y`, `webmcp`, the `--restore`/`--namespace` family, `--pin-tab`, `--input-mode`, `--ca-cert`, `--webgpu`, `--no-webmcp`, `--idle-timeout`, `snapshot --delta`, CDP target ids as tab refs, and the plugin, credential-provider, and session-inspection surfaces
+
 ## 0.2.23 - 2026-05-10
 
 ### Fixed

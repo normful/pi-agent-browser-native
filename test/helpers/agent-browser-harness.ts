@@ -274,6 +274,7 @@ export interface InvocationLogEntry {
 	args: string[];
 	event?: string;
 	idleTimeout?: string | null;
+	namespace?: string | null;
 	sessionName?: string;
 	socketDir?: string | null;
 	stdin?: string | null;
