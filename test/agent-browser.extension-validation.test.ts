@@ -1116,3 +1116,16 @@ test("agentBrowserExtension returns temp full-output path for oversized parse fa
 	}
 });
 
+
+test("agentBrowserExtension keeps the project rule when before_agent_start omits messageType", async () => {
+	// Hosts that predate the pi 1.4 union fire this event with no `messageType` at all. They are
+	// still user runs and the bash guard still enforces the project rule, so the prompt must match.
+	const harness = createExtensionHarness({ cwd: process.cwd(), prompt: "Open https://example.com and take a snapshot." });
+	const [turn] = await runExtensionEventResults<{ systemPrompt: string }>(
+		harness.handlers,
+		"before_agent_start",
+		{ prompt: "Open https://example.com and take a snapshot.", systemPrompt: "Base system prompt" },
+		harness.ctx,
+	);
+	assert.equal(turn?.systemPrompt?.includes("Project rule: when browser automation is needed"), true);
+});

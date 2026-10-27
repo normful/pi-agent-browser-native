@@ -28,6 +28,7 @@ import {
 	type AgentBrowserEnvelope,
 } from "./lib/results.js";
 import {
+	buildBareRestoreWarning,
 	buildExecutionPlan,
 	buildPromptPolicy,
 	chooseOpenResultTabCorrection,
@@ -35,6 +36,7 @@ import {
 	createFreshSessionName,
 	createImplicitSessionName,
 	extractCommandTokens,
+	extractNamespaceName,
 	getImplicitSessionCloseTimeoutMs,
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
@@ -1244,10 +1246,23 @@ function unwrapPinnedSessionBatchEnvelope(options: {
  * Every upstream invocation that addresses a managed session must send the same launch-affecting
  * environment. agent-browser 0.31.0+ compares the incoming configuration with the running daemon
  * and restarts it when they differ, which relaunches the browser and loses the open page.
+ *
+ * The idle timeout is resolved once at extension init so a mid-session env change cannot make the
+ * main call and its helper calls disagree. `--namespace` is replayed as `AGENT_BROWSER_NAMESPACE`
+ * because upstream isolates daemon sockets per namespace: without it, later calls start a second
+ * daemon in the default namespace and the open page is gone.
  */
-function buildManagedSessionProcessEnv(sessionName: string | undefined): NodeJS.ProcessEnv | undefined {
+function buildManagedSessionProcessEnv(options: {
+	idleTimeoutMs: number;
+	namespace?: string;
+	sessionName: string | undefined;
+}): NodeJS.ProcessEnv | undefined {
+	const { idleTimeoutMs, namespace, sessionName } = options;
 	if (!sessionName) return undefined;
-	return { AGENT_BROWSER_IDLE_TIMEOUT_MS: String(getImplicitSessionIdleTimeoutMs()) };
+	return {
+		AGENT_BROWSER_IDLE_TIMEOUT_MS: String(idleTimeoutMs),
+		...(namespace ? { AGENT_BROWSER_NAMESPACE: namespace } : {}),
+	};
 }
 
 async function runSessionCommandData(options: {
@@ -1498,7 +1513,13 @@ class AsyncExecutionQueue {
 	}
 }
 
-async function closeManagedSession(options: { cwd: string; sessionName: string; timeoutMs: number }): Promise<void> {
+async function closeManagedSession(options: {
+	cwd: string;
+	idleTimeoutMs: number;
+	namespace?: string;
+	sessionName: string;
+	timeoutMs: number;
+}): Promise<void> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs);
 	let stdoutSpillPath: string | undefined;
@@ -1506,7 +1527,11 @@ async function closeManagedSession(options: { cwd: string; sessionName: string; 
 		const processResult = await runAgentBrowserProcess({
 			args: ["--session", options.sessionName, "close"],
 			cwd: options.cwd,
-			env: buildManagedSessionProcessEnv(options.sessionName),
+			env: buildManagedSessionProcessEnv({
+				idleTimeoutMs: options.idleTimeoutMs,
+				namespace: options.namespace,
+				sessionName: options.sessionName,
+			}),
 			signal: controller.signal,
 		});
 		stdoutSpillPath = processResult.stdoutSpillPath;
@@ -1524,10 +1549,14 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 	const ephemeralSessionSeed = createEphemeralSessionSeed();
 	const toolPromptGuidelines = buildToolPromptGuidelines();
 	const implicitSessionCloseTimeoutMs = getImplicitSessionCloseTimeoutMs();
+	// Resolved once: agent-browser restarts the daemon when the incoming launch configuration
+	// differs from the running one, so every call in this session must send the same value.
+	const implicitSessionIdleTimeoutMs = getImplicitSessionIdleTimeoutMs();
 	let managedSessionActive = false;
 	let managedSessionBaseName = createImplicitSessionName(undefined, process.cwd(), ephemeralSessionSeed);
 	let managedSessionName = managedSessionBaseName;
 	let managedSessionCwd = process.cwd();
+	let managedSessionNamespace: string | undefined;
 	let freshSessionOrdinal = 0;
 	let sessionTabTargets = new Map<string, OrderedSessionTabTarget>();
 	let sessionTabTargetUpdateOrder = 0;
@@ -1541,6 +1570,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 		managedSessionActive = restoredState.active;
 		managedSessionName = restoredState.sessionName;
 		managedSessionCwd = ctx.cwd;
+		managedSessionNamespace = restoredState.namespace;
 		freshSessionOrdinal = restoredState.freshSessionOrdinal;
 		sessionTabTargets = restoreSessionTabTargetsFromBranch(ctx.sessionManager.getBranch());
 		sessionTabTargetUpdateOrder = getLatestSessionTabTargetOrder(sessionTabTargets);
@@ -1553,12 +1583,15 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				if (!managedSessionActive) return;
 				await closeManagedSession({
 					cwd: managedSessionCwd,
+					idleTimeoutMs: implicitSessionIdleTimeoutMs,
+					namespace: managedSessionNamespace,
 					sessionName: managedSessionName,
 					timeoutMs: implicitSessionCloseTimeoutMs,
 				});
 			});
 		}
 		managedSessionActive = false;
+		managedSessionNamespace = undefined;
 		sessionTabTargets = new Map<string, OrderedSessionTabTarget>();
 		sessionTabTargetUpdateOrder = 0;
 		traceOwners = new Map<string, TraceOwner>();
@@ -1569,7 +1602,9 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
 		// pi >= 1.4.0 also fires this event for runs started by another extension's
 		// `pi.sendMessage(..., { triggerTurn: true })`; those events carry `message`, not `prompt`.
-		if (event.messageType !== "user") {
+		// Skip only that variant: hosts that fire the event without `messageType` are still user
+		// runs and must keep the project rule that the bash guard below enforces.
+		if (event.messageType === "custom") {
 			return undefined;
 		}
 		if (!shouldAppendBrowserSystemPrompt(event.prompt)) {
@@ -1808,7 +1843,14 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 				}
 
 				// Helper calls below talk to the same daemon, so they must send the same launch environment.
-				const sessionProcessEnv = buildManagedSessionProcessEnv(executionPlan.managedSessionName);
+				// A namespace passed on this call wins; otherwise the managed session keeps the one it was
+				// launched with, so later calls still address the same namespaced daemon.
+				const callNamespace = extractNamespaceName(preparedArgs.args) ?? managedSessionNamespace;
+				const sessionProcessEnv = buildManagedSessionProcessEnv({
+					idleTimeoutMs: implicitSessionIdleTimeoutMs,
+					namespace: callNamespace,
+					sessionName: executionPlan.managedSessionName,
+				});
 				const priorSessionTabTargetState = executionPlan.sessionName ? sessionTabTargets.get(executionPlan.sessionName) : undefined;
 				const priorSessionTabTarget = priorSessionTabTargetState?.target;
 				let pinnedBatchUnwrapMode: PinnedBatchUnwrapMode | undefined;
@@ -2139,6 +2181,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					}
 
 					const priorManagedSessionCwd = managedSessionCwd;
+					const priorManagedSessionNamespace = managedSessionNamespace;
 					const managedSessionState = resolveManagedSessionState({
 						command: executionPlan.commandInfo.command,
 						managedSessionName: executionPlan.managedSessionName,
@@ -2151,11 +2194,21 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					managedSessionName = managedSessionState.sessionName;
 					if (executionPlan.managedSessionName && succeeded) {
 						managedSessionCwd = ctx.cwd;
+						// Only adopt a namespace from the launch that created the session; a later call
+						// cannot change it, and a close releases it so the next launch uses the default.
+						if (callNamespace !== undefined) {
+							managedSessionNamespace = callNamespace;
+						}
+					}
+					if (!managedSessionActive) {
+						managedSessionNamespace = undefined;
 					}
 					if (replacedManagedSessionName) {
 						sessionTabTargets.delete(replacedManagedSessionName);
 						await closeManagedSession({
 							cwd: priorManagedSessionCwd,
+							idleTimeoutMs: implicitSessionIdleTimeoutMs,
+							namespace: priorManagedSessionNamespace,
 							sessionName: replacedManagedSessionName,
 							timeoutMs: implicitSessionCloseTimeoutMs,
 						});
@@ -2224,13 +2277,17 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					if (presentation.artifactManifest) {
 						artifactManifest = presentation.artifactManifest;
 					}
-					const warningText = aboutBlankSessionMismatch ? buildAboutBlankWarning(aboutBlankSessionMismatch) : undefined;
+					const warningTexts = [
+						executionPlan.managedSessionName ? buildBareRestoreWarning(preparedArgs.args) : undefined,
+						aboutBlankSessionMismatch ? buildAboutBlankWarning(aboutBlankSessionMismatch) : undefined,
+					].filter((text): text is string => typeof text === "string");
+					const warningText = warningTexts.length > 0 ? warningTexts.join("\n\n") : undefined;
 					const contentWithSessionWarnings = userRequestedJson && !plainTextInspection
 						? buildJsonVisibleContent({
 								error: presentationEnvelope?.error,
 								presentation,
 								succeeded,
-								warnings: warningText ? [warningText] : undefined,
+								warnings: warningTexts.length > 0 ? warningTexts : undefined,
 						  })
 						: warningText
 							? [...presentation.content]
@@ -2279,6 +2336,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 						savedFile: presentation.savedFile,
 						savedFilePath: presentation.savedFilePath,
 						sessionMode,
+						sessionNamespace: executionPlan.managedSessionName ? callNamespace : undefined,
 						sessionTabCorrection,
 						sessionTabTarget: currentSessionTabTarget,
 						...buildSessionDetailFields(executionPlan.sessionName, executionPlan.usedImplicitSession),

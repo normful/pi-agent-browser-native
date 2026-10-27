@@ -37,7 +37,7 @@ Tool parameters:
 - `stdin`: only for `batch`, `eval --stdin`, and `auth save --password-stdin`; other command/stdin combinations are rejected before `agent-browser` is launched.
 - `sessionMode`:
   - `"auto"` reuses the extension-managed session when possible.
-  - `"fresh"` rotates that managed session to a fresh upstream launch so launch-scoped flags like `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` apply.
+  - `"fresh"` rotates that managed session to a fresh upstream launch so launch-scoped flags like `--profile`, `--restore`, `--restore-save`, `--namespace`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` apply.
 
 ## Recommended workflow
 
@@ -433,10 +433,10 @@ When these commands are invoked through the native `agent_browser` tool, structu
 
 - `--profile <name|path>`: reuse Chrome profile login state or use a persistent custom profile. Environment: `AGENT_BROWSER_PROFILE`.
 - `--session <name>`: use an isolated session. Environment: `AGENT_BROWSER_SESSION`.
-- `--restore [name]`: auto-save and restore cookies plus local storage for this run; without a name it uses the `--session` value as the restore key. Native tool calls accept both `--restore <name>` and `--restore=<name>`; the wrapper resolves the optional name against the upstream command names so the command after it still parses. Environment: `AGENT_BROWSER_RESTORE`.
+- `--restore [name]`: auto-save and restore cookies plus local storage for this run; without a name it uses the `--session` value as the restore key. Native tool calls accept both `--restore <name>` and `--restore=<name>`; the wrapper resolves the optional name against the upstream command names so the command after it still parses. On the wrapper-managed session the injected session name changes when a new pi session starts, so pass an explicit `--restore <name>` for state that must survive across pi sessions; the tool warns when the nameless form is used there. Environment: `AGENT_BROWSER_RESTORE`.
 - `--restore-save <policy>`: restore auto-save policy `auto`, `always`, or `never`. Environment: `AGENT_BROWSER_RESTORE_SAVE`.
 - `--restore-check-url <glob>`, `--restore-check-text <txt>`, `--restore-check-fn <js>`: validate restored state against the current URL, visible text, or a truthy JavaScript expression before using it. Environments: `AGENT_BROWSER_RESTORE_CHECK_URL`, `AGENT_BROWSER_RESTORE_CHECK_TEXT`, `AGENT_BROWSER_RESTORE_CHECK_FN`.
-- `--namespace <name>`: isolate daemon sockets and restore-state directories. Environment: `AGENT_BROWSER_NAMESPACE`.
+- `--namespace <name>`: isolate daemon sockets and restore-state directories. The wrapper replays the namespace it launched a managed session with on every later call for that session. Environment: `AGENT_BROWSER_NAMESPACE`.
 - `--session-name <name>`: legacy alias for the restore persistence key. Environment: `AGENT_BROWSER_SESSION_NAME`.
 - `--state <path>`: load saved auth state from JSON. Environment: `AGENT_BROWSER_STATE`.
 - `--auto-connect`: connect to a running Chrome to reuse auth state. Environment: `AGENT_BROWSER_AUTO_CONNECT`.
@@ -465,7 +465,7 @@ When these commands are invoked through the native `agent_browser` tool, structu
 - `--webgpu`: enable WebGPU, using SwiftShader software Vulkan where no GPU is available. Environment: `AGENT_BROWSER_WEBGPU`.
 - `--no-webmcp`: disable default experimental WebMCP support for locally launched Chrome. Environment: `AGENT_BROWSER_NO_WEBMCP`.
 - `--pin-tab` / `--no-pin-tab`: make the session-to-tab binding strict, or turn a sticky pin off. Environment: `AGENT_BROWSER_PIN_TAB`.
-- `--input-mode <mode>`: session pointer movement, `instant` (default), `smooth`, or `human`.
+- `--input-mode <mode>`: session pointer movement, `instant` (default), `smooth`, or `human`. It is a session runtime setting rather than launch configuration, so a mid-session change applies to later calls without relaunching the browser.
 - `--idle-timeout <time>`: shut the daemon down after inactivity, for example `10s`, `3m`, `1h`, or raw milliseconds; `0` disables it. Environment: `AGENT_BROWSER_IDLE_TIMEOUT_MS`.
 - `--screenshot-dir`, `--screenshot-quality`, and `--screenshot-format` also cover conditional captures with `--if-changed` and `--threshold <0-1>`.
 - `--no-auto-dialog`: disable automatic dismissal of alert/beforeunload dialogs. Environment: `AGENT_BROWSER_NO_AUTO_DIALOG`.
@@ -507,7 +507,8 @@ Other useful environment variables include `AGENT_BROWSER_AUTOSAVE_INTERVAL_MS`,
 ## Wrapper-specific behavior worth knowing
 
 - The extension may keep following one implicit managed session across later tool calls.
-- If launch-scoped flags like `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` would be ignored because that implicit session is already active, retry with `sessionMode: "fresh"`.
+- If launch-scoped flags like `--profile`, `--restore`, `--restore-save`, `--namespace`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` would be ignored because that implicit session is already active, retry with `sessionMode: "fresh"`.
+- `--namespace` is replayed on every later call for that managed session, and on the shutdown close, so the namespaced daemon keeps the page instead of being orphaned. A new pi session starts without a namespace.
 <!-- agent-browser-playbook:start wrapper-tab-recovery -->
 <!-- Generated from extensions/agent-browser/lib/playbook.ts. Run `npm run docs -- playbook write` to update. -->
 - After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --restore, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.

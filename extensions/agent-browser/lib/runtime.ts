@@ -20,15 +20,28 @@ import { isRecord } from "./parsing.js";
  * because upstream ignores or conflicts with them once a session is reused. Every flag here
  * participates in implicit-session validation blocking and recovery-hint generation.
  *
- * Intentionally excluded from the tab-correction subset:
- * - `--auto-connect` attaches to a running browser but is a general-purpose debug/attach mode,
- *   not a state-restore mechanism that typically leaves restored tabs stealing focus.
- * - `--cdp` connects to an arbitrary endpoint; similar reasoning to `--auto-connect`.
+ * Membership of the tab-correction subset (`LAUNCH_SCOPED_TAB_CORRECTION_FLAGS`) is decided per
+ * flag. A flag belongs there only when it can itself restore tabs that then steal focus:
+ * - `--profile`, `--session-name`, `--state` reuse persisted auth/browser state that reopens tabs.
+ * - `--restore` replays saved tabs for the restore key.
+ * Every other launch-scoped flag is deliberately excluded:
+ * - `--auto-connect` and `--cdp` attach to an already-running browser; they are general-purpose
+ *   debug/attach modes rather than state-restore mechanisms.
+ * - `--namespace` only relocates the daemon socket and restore-state directory. It selects where
+ *   the session lives, not which tabs a launch restores; callers that want restored tabs also
+ *   pass `--restore`.
+ * - `--restore-save` selects *when* state is written and never restores anything.
+ * - `--init-script` and `--enable` inject page scripts; the page is still whatever the caller
+ *   navigates to next.
  *
  * Other flags like `--headed`, `--engine`, `--executable-path`, `--user-agent`, and
  * `--download-path` are first-launch-sensitive but not alternate session/auth attach
  * mechanisms and do not inject pre-page JavaScript, so they are intentionally excluded
  * from the full launch-scoped set.
+ *
+ * `--input-mode` is excluded on evidence: launching with `--input-mode human` and then calling
+ * `get title` without it reuses the same daemon with an identical `launchHash`, so upstream
+ * treats it as a session runtime setting rather than launch configuration.
  */
 const LAUNCH_SCOPED_FLAG_DEFINITIONS = [
 	{
@@ -83,10 +96,11 @@ const LAUNCH_SCOPED_FLAG_LABEL = LAUNCH_SCOPED_FLAG_DEFINITIONS.map((definition)
 const LAUNCH_SCOPED_TAB_CORRECTION_FLAGS = new Set(["--profile", "--restore", "--session-name", "--state"] as const);
 /**
  * Top-level upstream commands, used to resolve flags whose optional value is a free-form name.
- * Keep this list in step with the installed upstream help surface documented in
- * docs/COMMAND_REFERENCE.md and scripts/agent-browser-capability-baseline.mjs.
+ * This set is the only authority for whether the token after `--restore` is a restore key or the
+ * command, so it must stay in step with the installed upstream help surface. Export it so the
+ * capability-baseline test can prove every recorded root-help command token is a member.
  */
-const TOP_LEVEL_COMMANDS = new Set([
+export const TOP_LEVEL_COMMANDS = new Set([
 	"a11y",
 	"addinitscript",
 	"auth",
@@ -140,6 +154,7 @@ const TOP_LEVEL_COMMANDS = new Set([
 	"record",
 	"reload",
 	"removeinitscript",
+	"requests",
 	"screenshot",
 	"scroll",
 	"scrollintoview",
@@ -314,6 +329,8 @@ export interface ManagedSessionState {
 
 export interface RestoredManagedSessionState extends ManagedSessionState {
 	freshSessionOrdinal: number;
+	/** Namespace the managed session was last launched with, replayed on later calls. */
+	namespace?: string;
 }
 
 export interface PromptPolicy {
@@ -660,6 +677,7 @@ export function restoreManagedSessionStateFromBranch(
 	};
 	let activeRestoreRank = 0;
 	let freshSessionOrdinal = 0;
+	let restoredNamespace: string | undefined;
 	const freshSessionRanks = new Map<string, number>();
 
 	for (const entry of branch) {
@@ -729,11 +747,22 @@ export function restoreManagedSessionStateFromBranch(
 		if (succeeded && command !== "close" && restoredState.active) {
 			activeRestoreRank = restoreRank;
 		}
+		// The managed session keeps the namespace of the launch that created it. A close ends the
+		// session and with it the namespace, so a later launch goes back to the default namespace.
+		if (!restoredState.active) {
+			restoredNamespace = undefined;
+		} else if (succeeded && command !== "close") {
+			const launchNamespace = typeof details.sessionNamespace === "string" ? details.sessionNamespace : undefined;
+			if (launchNamespace !== undefined) {
+				restoredNamespace = launchNamespace;
+			}
+		}
 	}
 
 	return {
 		...restoredState,
 		freshSessionOrdinal,
+		...(restoredNamespace !== undefined ? { namespace: restoredNamespace } : {}),
 	};
 }
 
@@ -976,6 +1005,25 @@ export function getStartupScopedFlags(args: string[]): string[] {
 		.filter((flag) => flag === "--auto-connect" ? isBooleanFlagEnabled(args, flag) : hasFlagToken(args, flag));
 }
 
+/**
+ * `--namespace <name>` isolates daemon sockets and restore-state directories. Without the same
+ * namespace on later calls, upstream launches a second daemon under the default namespace and the
+ * open page is gone, so the extension replays it as `AGENT_BROWSER_NAMESPACE` for the session.
+ */
+export function extractNamespaceName(args: string[]): string | undefined {
+	for (const [index, token] of args.entries()) {
+		if (token === "--namespace") {
+			const value = args[index + 1];
+			return value !== undefined && !value.startsWith("-") ? value : undefined;
+		}
+		if (token.startsWith("--namespace=")) {
+			const value = token.slice("--namespace=".length);
+			return value.length > 0 ? value : undefined;
+		}
+	}
+	return undefined;
+}
+
 export function hasLaunchScopedTabCorrectionFlag(args: string[]): boolean {
 	return args.some((token) => {
 		for (const flag of LAUNCH_SCOPED_TAB_CORRECTION_FLAGS) {
@@ -983,6 +1031,22 @@ export function hasLaunchScopedTabCorrectionFlag(args: string[]): boolean {
 		}
 		return false;
 	});
+}
+
+/**
+ * Upstream's `--restore [name]` treats a missing name as "use the `--session` value as the restore
+ * key". On the wrapper-managed path that session name is generated per pi session, so the state is
+ * not re-readable by the next run and restore silently looks configured while doing nothing.
+ */
+export function buildBareRestoreWarning(args: string[]): string | undefined {
+	for (const [index, token] of args.entries()) {
+		if (token !== "--restore") continue;
+		const nextToken = args[index + 1];
+		if (nextToken === undefined || nextToken.startsWith("-") || TOP_LEVEL_COMMANDS.has(nextToken)) {
+			return "Warning: `--restore` without a name keys persisted browser state on the extension-managed session name, which changes when a new pi session starts. Pass an explicit `--restore <name>` to reuse the same state across runs.";
+		}
+	}
+	return undefined;
 }
 
 export function buildPromptPolicy(prompt: string): PromptPolicy {

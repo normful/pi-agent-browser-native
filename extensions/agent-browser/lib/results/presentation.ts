@@ -216,6 +216,15 @@ function firstLine(value: string, maxChars = 160): string {
 	return truncateText(value.split("\n", 1)[0] ?? value, maxChars);
 }
 
+/**
+ * Page-controlled strings (accessibility rule help text, WebMCP tool names/descriptions) are
+ * untrusted and can contain newlines, so collapse whitespace before they reach a line-oriented
+ * renderer; otherwise a page can fabricate extra wrapper-looking lines.
+ */
+function flattenPageText(value: string, maxChars = 160): string {
+	return truncateText(redactModelFacingText(value).replace(/\s+/g, " ").trim(), maxChars);
+}
+
 function getNumberField(data: Record<string, unknown>, key: string): number | undefined {
 	const value = data[key];
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -276,12 +285,12 @@ function formatA11yText(data: Record<string, unknown>): string | undefined {
 		const help = getStringField(violation, "help");
 		const nodes = getArrayField(violation, "nodes") ?? [];
 		const nodeCount = getNumberField(violation, "nodeCount") ?? nodes.length;
-		lines.push(`[${impact}] ${id}${help ? `: ${redactModelFacingText(firstLine(help, 120))}` : ""} (${formatCount(nodeCount, "node")})`);
+		lines.push(`[${impact}] ${id}${help ? `: ${flattenPageText(help, 120)}` : ""} (${formatCount(nodeCount, "node")})`);
 		for (const node of nodes.slice(0, MAX_A11Y_TARGETS_PER_VIOLATION)) {
 			if (!isRecord(node)) continue;
 			const targets = getArrayField(node, "target") ?? [];
 			const targetText = targets.map((target) => stringifyModelFacing(target)).join(" >> ");
-			if (targetText.length > 0) lines.push(`  - ${redactModelFacingTextIfSensitive(truncateText(targetText, 160))}`);
+			if (targetText.length > 0) lines.push(`  - ${flattenPageText(targetText, 160)}`);
 		}
 		const hiddenTargets = Math.max(0, nodeCount - Math.min(nodes.length, MAX_A11Y_TARGETS_PER_VIOLATION));
 		if (hiddenTargets > 0) lines.push(`  - (+${hiddenTargets} more)`);
@@ -326,8 +335,8 @@ function formatWebmcpText(commandInfo: CommandInfo, data: Record<string, unknown
 			const name = getStringField(tool, "name") ?? "(unnamed tool)";
 			const description = getStringField(tool, "description");
 			const origin = getStringField(tool, "origin");
-			const details = [origin ? redactModelFacingText(origin) : undefined].flatMap((detail) => (detail ? [detail] : []));
-			lines.push(`- ${redactModelFacingText(name)}${description ? ` — ${redactModelFacingText(firstLine(description, 160))}` : ""}${details.length > 0 ? ` (${details.join(", ")})` : ""}`);
+			const details = [origin ? flattenPageText(origin, 160) : undefined].flatMap((detail) => (detail ? [detail] : []));
+			lines.push(`- ${flattenPageText(name, 120)}${description ? ` — ${flattenPageText(description, 160)}` : ""}${details.length > 0 ? ` (${details.join(", ")})` : ""}`);
 		}
 		if (tools.length > MAX_WEBMCP_TOOL_LINES) {
 			lines.push(`(+${tools.length - MAX_WEBMCP_TOOL_LINES} more tools)`);
@@ -1832,7 +1841,7 @@ export async function buildToolPresentation(options: {
 	// requested path still yields an artifact, so state that the image was not rewritten.
 	const unchangedScreenshot = commandInfo.command === "screenshot" && isRecord(data) && data.changed === false;
 	const summary = (unchangedScreenshot ? formatSummary(commandInfo, data) : undefined) ?? artifactSummary ?? formatSummary(commandInfo, data);
-	const artifactText = artifacts.length > 0 ? formatArtifactMetadataLines(artifacts, { unchangedImage: commandInfo.command === "screenshot" && isRecord(data) && data.changed === false }).join("\n") : undefined;
+	const artifactText = artifacts.length > 0 ? formatArtifactMetadataLines(artifacts, { unchangedImage: unchangedScreenshot }).join("\n") : undefined;
 	// Recording artifacts exist from `record start` onward, so keep the capture settings visible
 	// alongside the artifact block instead of dropping them with the body text.
 	const recordingText = artifacts.length > 0 && commandInfo.command === "record" && isRecord(data) ? formatRecordText(data) : undefined;
@@ -1867,7 +1876,10 @@ export async function buildToolPresentation(options: {
 		}
 	}
 
-	const imagePath = artifactRequest?.absolutePath ?? extractImagePath(commandInfo, cwd, data);
+	// An unchanged conditional capture wrote no new bytes: the file on disk is the earlier capture.
+	// Attaching it would hand the model stale pixels as this call's result, and registering it as a
+	// live manifest entry would claim a file that this call never created.
+	const imagePath = unchangedScreenshot ? undefined : artifactRequest?.absolutePath ?? extractImagePath(commandInfo, cwd, data);
 	const presentationWithImage = imagePath ? await attachInlineImage(presentation, imagePath) : presentation;
 	const compactedPresentation = await compactLargePresentationOutput({
 		artifactManifest,
@@ -1880,7 +1892,7 @@ export async function buildToolPresentation(options: {
 		applyArtifactManifest(
 			compactedPresentation,
 			compactedPresentation.artifactManifest ?? artifactManifest,
-			buildManifestEntriesForFileArtifacts(artifacts.filter(isManifestFileArtifact)),
+			buildManifestEntriesForFileArtifacts(unchangedScreenshot ? [] : artifacts.filter(isManifestFileArtifact)),
 		),
 	);
 }

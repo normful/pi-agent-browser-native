@@ -17,11 +17,13 @@ import test from "node:test";
 import { isRecord, parsePositiveInteger } from "../extensions/agent-browser/lib/parsing.js";
 import { getAgentBrowserSocketDir } from "../extensions/agent-browser/lib/process.js";
 import {
+	buildBareRestoreWarning,
 	buildExecutionPlan,
 	buildPromptPolicy,
 	createFreshSessionName,
 	createImplicitSessionName,
 	extractCommandTokens,
+	extractNamespaceName,
 	getImplicitSessionCloseTimeoutMs,
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
@@ -33,7 +35,9 @@ import {
 	resolveManagedSessionState,
 	restoreManagedSessionStateFromBranch,
 	shouldAppendBrowserSystemPrompt,
+	TOP_LEVEL_COMMANDS,
 } from "../extensions/agent-browser/lib/runtime.js";
+import { CAPABILITY_BASELINE } from "../scripts/agent-browser-capability-baseline.mjs";
 import {
 	cleanupSecureTempArtifacts,
 	getSecureTempDebugState,
@@ -993,3 +997,106 @@ test("shouldAppendBrowserSystemPrompt tolerates prompts absent from extension-tr
 	assert.equal(shouldAppendBrowserSystemPrompt("   \n\t "), false);
 });
 
+
+// Root-help tokens recorded from upstream help prose rather than a command name.
+const ROOT_HELP_PROSE_TOKENS = new Set(["exposing"]);
+
+test("TOP_LEVEL_COMMANDS covers every root-help command token in the capability baseline", () => {
+	// The set is the only authority for whether the token after `--restore [name]` is a restore key
+	// or the command, so a missing member silently swallows the command (`--restore requests ...`).
+	const rootHelpFirstWords = new Set(
+		CAPABILITY_BASELINE.upstreamExpectations
+			.filter((expectation) => expectation.help === "root help")
+			.map((expectation) => expectation.token.split(/\s+/)[0] ?? "")
+			.filter((word) => /^[a-z]/.test(word) && !ROOT_HELP_PROSE_TOKENS.has(word)),
+	);
+	const missing = [...rootHelpFirstWords].filter((word) => !TOP_LEVEL_COMMANDS.has(word));
+	assert.deepEqual(missing, [], `TOP_LEVEL_COMMANDS is missing baseline root-help commands: ${missing.join(", ")}`);
+});
+
+test("parseCommandInfo keeps the command that follows an optional --restore name", () => {
+	assert.deepEqual(parseCommandInfo(["--restore", "requests"]), { command: "requests", subcommand: undefined });
+	assert.deepEqual(parseCommandInfo(["--restore", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore=worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+});
+
+test("extractNamespaceName reads both flag forms and ignores a missing value", () => {
+	assert.equal(extractNamespaceName(["--namespace", "work", "open", "https://example.com"]), "work");
+	assert.equal(extractNamespaceName(["--namespace=work", "open", "https://example.com"]), "work");
+	assert.equal(extractNamespaceName(["--namespace=", "open", "https://example.com"]), undefined);
+	assert.equal(extractNamespaceName(["--namespace", "--headed", "open", "https://example.com"]), undefined);
+	assert.equal(extractNamespaceName(["open", "https://example.com"]), undefined);
+});
+
+test("buildBareRestoreWarning flags only the nameless restore form", () => {
+	assert.match(buildBareRestoreWarning(["--restore", "open", "https://example.com"]) ?? "", /Pass an explicit `--restore <name>`/);
+	assert.match(buildBareRestoreWarning(["--restore"]) ?? "", /Pass an explicit `--restore <name>`/);
+	assert.equal(buildBareRestoreWarning(["--restore", "worktree", "open", "https://example.com"]), undefined);
+	assert.equal(buildBareRestoreWarning(["--restore=worktree", "open"]), undefined);
+	assert.equal(buildBareRestoreWarning(["open", "https://example.com"]), undefined);
+});
+
+test("restoreManagedSessionStateFromBranch carries the launched namespace until the session closes", () => {
+	const fallbackSessionName = "piab-demo-123";
+	const opened = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: {
+					args: ["--namespace", "work", "open", "https://example.com"],
+					command: "open",
+					sessionMode: "fresh",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					sessionNamespace: "work",
+				},
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(opened.active, true);
+	assert.equal(opened.namespace, "work");
+
+	const closed = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: {
+					args: ["--namespace", "work", "open", "https://example.com"],
+					command: "open",
+					sessionMode: "fresh",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					sessionNamespace: "work",
+				},
+			}),
+			createToolBranchEntry({
+				details: {
+					args: ["close"],
+					command: "close",
+					sessionName: `${fallbackSessionName}-fresh-abc`,
+					usedImplicitSession: true,
+				},
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(closed.active, false);
+	assert.equal(closed.namespace, undefined);
+
+	const withoutNamespace = restoreManagedSessionStateFromBranch(
+		[
+			createToolBranchEntry({
+				details: { args: ["open", "https://example.com"], command: "open", sessionMode: "fresh", sessionName: `${fallbackSessionName}-fresh-abc` },
+			}),
+		],
+		fallbackSessionName,
+	);
+	assert.equal(withoutNamespace.namespace, undefined);
+});

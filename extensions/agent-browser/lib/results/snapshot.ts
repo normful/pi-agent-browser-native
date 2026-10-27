@@ -138,6 +138,53 @@ function getSnapshotText(data: Record<string, unknown>): string | undefined {
 	return typeof data.snapshot === "string" ? data.snapshot : undefined;
 }
 
+interface UnchangedSnapshotDelta {
+	baseRevision?: number;
+	revision?: number;
+}
+
+/**
+ * `snapshot --delta` answers with an object instead of the usual text plus top-level refs:
+ * `{ kind: "full", refs, revision, tree }` on the first call and after a change, then
+ * `{ kind: "unchanged", baseRevision, revision }` on a repeat. Every renderer below reads the
+ * text/top-level shape, so flatten the object form here and keep the unchanged case as a marker.
+ */
+function normalizeSnapshotDeltaData(data: Record<string, unknown>): {
+	data: Record<string, unknown>;
+	unchangedDelta?: UnchangedSnapshotDelta;
+} {
+	const snapshot = data.snapshot;
+	if (!isRecord(snapshot)) {
+		return { data };
+	}
+	if (snapshot.kind === "unchanged") {
+		return {
+			data,
+			unchangedDelta: {
+				baseRevision: typeof snapshot.baseRevision === "number" ? snapshot.baseRevision : undefined,
+				revision: typeof snapshot.revision === "number" ? snapshot.revision : undefined,
+			},
+		};
+	}
+	if (typeof snapshot.tree !== "string") {
+		return { data };
+	}
+	return {
+		data: {
+			...data,
+			refs: isRecord(snapshot.refs) ? snapshot.refs : data.refs,
+			snapshot: snapshot.tree,
+		},
+	};
+}
+
+function formatUnchangedSnapshotDelta(unchangedDelta: UnchangedSnapshotDelta): string {
+	const revision = unchangedDelta.revision !== undefined ? `revision ${unchangedDelta.revision}` : "the current revision";
+	const baseRevision =
+		unchangedDelta.baseRevision !== undefined ? `baseline ${unchangedDelta.baseRevision}` : "the previous capture";
+	return `Snapshot unchanged (${revision}, ${baseRevision}); the @refs from the earlier snapshot are still current.`;
+}
+
 function getSnapshotOrigin(data: Record<string, unknown>): string {
 	return typeof data.origin === "string" ? data.origin : "(unknown origin)";
 }
@@ -526,15 +573,24 @@ function applySnapshotArtifactManifest(options: {
 }
 
 export function formatSnapshotSummary(data: Record<string, unknown>): string {
-	const origin = typeof data.origin === "string" ? data.origin : "page";
-	const refs = isRecord(data.refs) ? Object.keys(data.refs).length : 0;
+	const normalized = normalizeSnapshotDeltaData(data);
+	if (normalized.unchangedDelta) {
+		const { baseRevision, revision } = normalized.unchangedDelta;
+		return `Snapshot unchanged (revision ${revision ?? "?"}, baseline ${baseRevision ?? "?"})`;
+	}
+	const origin = typeof normalized.data.origin === "string" ? normalized.data.origin : "page";
+	const refs = isRecord(normalized.data.refs) ? Object.keys(normalized.data.refs).length : 0;
 	return `Snapshot: ${refs} refs on ${origin}`;
 }
 
 export function formatRawSnapshotText(data: Record<string, unknown>): string {
-	const origin = getSnapshotOrigin(data);
-	const refs = isRecord(data.refs) ? Object.keys(data.refs).length : 0;
-	const snapshot = getSnapshotText(data);
+	const normalized = normalizeSnapshotDeltaData(data);
+	const origin = getSnapshotOrigin(normalized.data);
+	if (normalized.unchangedDelta) {
+		return `Origin: ${origin}\n\n${formatUnchangedSnapshotDelta(normalized.unchangedDelta)}`;
+	}
+	const refs = isRecord(normalized.data.refs) ? Object.keys(normalized.data.refs).length : 0;
+	const snapshot = getSnapshotText(normalized.data);
 	if (!snapshot) {
 		return `Origin: ${origin}\nRefs: ${refs}\n\n(no interactive elements)`;
 	}
@@ -546,7 +602,17 @@ export async function buildSnapshotPresentation(
 	persistentArtifactStore: PersistentSessionArtifactStore | undefined = undefined,
 	artifactManifest: SessionArtifactManifest | undefined = undefined,
 ): Promise<ToolPresentation> {
-	const summary = formatSnapshotSummary(data);
+	// Flatten the `--delta` object form before anything reads `data.snapshot` or `data.refs`.
+	const normalized = normalizeSnapshotDeltaData(data);
+	const summary = formatSnapshotSummary(normalized.data);
+	if (normalized.unchangedDelta) {
+		return {
+			content: [{ type: "text", text: formatRawSnapshotText(normalized.data) }],
+			data: normalized.data,
+			summary,
+		};
+	}
+	data = normalized.data;
 	const rawText = formatRawSnapshotText(data);
 	if (!shouldCompactSnapshot(rawText, data)) {
 		return {

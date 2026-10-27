@@ -42,6 +42,7 @@ One-shot commands (`read <url>`) don't need a session.
 | `snapshot -c` | ~15 lines | Read content, no empty elements |
 | `snapshot -d N` | varies | Limit depth |
 | `snapshot -s "sel"` | varies | Scope to selector |
+| `snapshot --delta` | full, then unchanged | Repeat checks of a mostly static page: full state once, then unchanged (reuse the earlier `@refs`) or a fresh full state after a change |
 
 ### Interaction
 - `click <ref>`, `fill <ref> <text>`, `type <ref> <text>`
@@ -115,7 +116,7 @@ One-shot commands (`read <url>`) don't need a session.
 ### Session Modes
 | Mode | `--session <name>`? | Behavior |
 |------|---------------------|----------|
-| `auto` (default) | No | ✅ Reuses the extension-managed session across calls; the page and tab persist. The tool does not print that internal name. |
+| `auto` (default) | No | ✅ Reuses the extension-managed session across calls; the page and tab persist. The generated session name appears only in the expanded tool render, never in the model-facing content. |
 | `auto` | Yes | ✅ Reuses the named session; independent of the managed one. Refs go stale after nav — re-snapshot. |
 | `fresh` | — | Starts on `about:blank` in a new upstream launch — must `open <url>` first. |
 

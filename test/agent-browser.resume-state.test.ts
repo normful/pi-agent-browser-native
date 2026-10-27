@@ -1322,3 +1322,61 @@ if (args.includes("tab") && args.includes("list")) {
 		await rm(tempDir, { force: true, recursive: true });
 	}
 });
+
+test("agentBrowserExtension replays a managed-session --namespace to helper calls and the shutdown close", { concurrency: false }, async () => {
+	// `--namespace` isolates daemon sockets, so a helper call without it starts a second daemon in
+	// the default namespace and loses the open page; the close would then orphan the namespaced one.
+	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-namespace-"));
+	const logPath = join(tempDir, "invocations.log");
+	const basePath = process.env.PATH ?? "";
+	await writeFakeAgentBrowserBinary(
+		tempDir,
+		`const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
+  args,
+  namespace: process.env.AGENT_BROWSER_NAMESPACE ?? null,
+}) + "\\n");
+if (args.includes("tab") && args.includes("list")) {
+  process.stdout.write(JSON.stringify({ success: true, data: { tabs: [
+    { tabId: "t1", title: "Example Domain", url: "https://example.com/", active: true }
+  ] } }));
+} else if (args.includes("snapshot")) {
+  process.stdout.write(JSON.stringify({ success: true, data: { origin: "https://example.com/", refs: {}, snapshot: "- heading \\"Example\\" [ref=e1]" } }));
+} else {
+  process.stdout.write(JSON.stringify({ success: true, data: { title: "Example Domain", url: "https://example.com/" } }));
+}`,
+	);
+
+	try {
+		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+			const harness = createExtensionHarness({ cwd: tempDir });
+			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+
+			const opened = await executeRegisteredTool(harness.tool, harness.ctx, {
+				args: ["--namespace", "work", "open", "https://example.com"],
+				sessionMode: "fresh",
+			});
+			assert.equal(opened.isError, false);
+			assert.equal(opened.details?.sessionNamespace, "work");
+
+			const snapshot = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["snapshot", "-i"] });
+			assert.equal(snapshot.isError, false);
+
+			await runExtensionEvent(harness.handlers, "session_shutdown", { reason: "quit" }, harness.ctx);
+
+			const invocations = await readInvocationLog(logPath);
+			const closeInvocation = invocations.find((entry) => entry.args.includes("close"));
+			assert.ok(closeInvocation, "expected the shutdown close invocation");
+			for (const entry of invocations) {
+				assert.equal(
+					entry.namespace,
+					"work",
+					`every managed-session invocation must replay the namespace: ${entry.args.join(" ")}`,
+				);
+			}
+		});
+	} finally {
+		await rm(tempDir, { force: true, recursive: true });
+	}
+});
