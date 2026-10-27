@@ -685,7 +685,7 @@ export function restoreManagedSessionStateFromBranch(
 			continue;
 		}
 		const message = isRecord(entry.message) ? entry.message : undefined;
-		if (!message || message.toolName !== "agent_browser") {
+		if (!message || !isAgentBrowserToolResultMessage(message)) {
 			continue;
 		}
 		const details = isRecord(message.details) ? message.details : undefined;
@@ -997,6 +997,17 @@ export function extractExplicitSessionName(args: string[]): string | undefined {
 		}
 	}
 	return undefined;
+}
+
+/**
+ * pi records each tool result under the registered tool name. This extension registers `browser`,
+ * while `agent_browser` is the name older versions and the test harness used, so session-state
+ * replay accepts both: matching only one of them makes restore silently inert.
+ */
+export const AGENT_BROWSER_TOOL_RESULT_NAMES = new Set(["agent_browser", "browser"]);
+
+export function isAgentBrowserToolResultMessage(message: Record<string, unknown>): boolean {
+	return typeof message.toolName === "string" && AGENT_BROWSER_TOOL_RESULT_NAMES.has(message.toolName);
 }
 
 export function getStartupScopedFlags(args: string[]): string[] {

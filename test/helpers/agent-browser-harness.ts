@@ -139,13 +139,15 @@ export function buildUserBranch(prompt = ""): unknown[] {
 		: [{ type: "message", message: { role: "user", content: [{ type: "text", text: prompt }] } }];
 }
 
-export function createToolBranchEntry(options: { details: Record<string, unknown>; isError?: boolean }): unknown {
+export function createToolBranchEntry(options: { details: Record<string, unknown>; isError?: boolean; toolName?: string }): unknown {
 	return {
 		type: "message",
 		message: {
 			isError: options.isError,
 			details: options.details,
-			toolName: "agent_browser",
+			// `browser` is the registered tool name; `agent_browser` is the legacy name the extension
+			// still accepts when replaying session state.
+			toolName: options.toolName ?? "browser",
 		},
 	};
 }

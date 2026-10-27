@@ -42,6 +42,7 @@ import {
 	getLatestUserPrompt,
 	hasLaunchScopedTabCorrectionFlag,
 	extractExplicitSessionName,
+	isAgentBrowserToolResultMessage,
 	redactInvocationArgs,
 	redactSensitiveText,
 	redactSensitiveValue,
@@ -923,7 +924,7 @@ function restoreSessionTabTargetsFromBranch(branch: unknown[]): Map<string, Orde
 			continue;
 		}
 		const message = isRecord(entry.message) ? entry.message : undefined;
-		if (!message || message.toolName !== "agent_browser") {
+		if (!message || !isAgentBrowserToolResultMessage(message)) {
 			continue;
 		}
 		const details = isRecord(message.details) ? message.details : undefined;
@@ -959,7 +960,7 @@ function restoreArtifactManifestFromBranch(branch: unknown[]): SessionArtifactMa
 	for (const entry of branch) {
 		if (!isRecord(entry) || entry.type !== "message") continue;
 		const message = isRecord(entry.message) ? entry.message : undefined;
-		if (!message || message.toolName !== "agent_browser") continue;
+		if (!message || !isAgentBrowserToolResultMessage(message)) continue;
 		const details = isRecord(message.details) ? message.details : undefined;
 		if (isSessionArtifactManifest(details?.artifactManifest)) {
 			restoredManifest = details.artifactManifest;

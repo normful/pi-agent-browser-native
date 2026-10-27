@@ -12,6 +12,7 @@
 - fixed older pi hosts losing the project rule: `before_agent_start` now skips only `messageType: "custom"` runs instead of treating an absent `messageType` as extension-triggered
 - fixed `--restore requests …` swallowing the command: `requests` is now a known top-level command, and a test checks the command table against the capability baseline
 - added a warning when `--restore` is used without a name on the managed session, where the generated session name makes the restore key useless across pi sessions
+- fixed session-state replay matching only the legacy `agent_browser` tool name, so tab targets, artifact manifests, and the launched namespace never restored in real sessions: restore now accepts the registered `browser` name as well
 
 ### Changed
 - `--input-mode`, `--restore-save`, `--namespace`, and the other launch-scoped flags now record why they are or are not part of the tab-correction subset

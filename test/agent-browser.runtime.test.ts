@@ -1100,3 +1100,29 @@ test("restoreManagedSessionStateFromBranch carries the launched namespace until 
 	);
 	assert.equal(withoutNamespace.namespace, undefined);
 });
+
+test("restoreManagedSessionStateFromBranch accepts the registered tool name and the legacy one", () => {
+	// pi records tool results under the registered name, which is `browser`; earlier versions used
+	// `agent_browser`. Matching only one name makes restore silently inert in real sessions.
+	const fallbackSessionName = "piab-demo-123";
+	const details = {
+		args: ["open", "https://example.com"],
+		command: "open",
+		sessionMode: "fresh",
+		sessionName: `${fallbackSessionName}-fresh-abc`,
+	};
+	for (const toolName of ["browser", "agent_browser"]) {
+		const restored = restoreManagedSessionStateFromBranch(
+			[createToolBranchEntry({ details, toolName })],
+			fallbackSessionName,
+		);
+		assert.equal(restored.active, true, toolName);
+		assert.equal(restored.sessionName, `${fallbackSessionName}-fresh-abc`, toolName);
+	}
+
+	const unrelated = restoreManagedSessionStateFromBranch(
+		[createToolBranchEntry({ details, toolName: "bash" })],
+		fallbackSessionName,
+	);
+	assert.equal(unrelated.active, false);
+});
