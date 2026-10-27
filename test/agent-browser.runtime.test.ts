@@ -21,6 +21,7 @@ import {
 	buildPromptPolicy,
 	createFreshSessionName,
 	createImplicitSessionName,
+	extractCommandTokens,
 	getImplicitSessionCloseTimeoutMs,
 	getImplicitSessionIdleTimeoutMs,
 	getLatestUserPrompt,
@@ -769,6 +770,18 @@ test("parseCommandInfo recognizes open targets after command-scoped init flags",
 		command: "open",
 		subcommand: "https://example.com",
 	});
+	assert.deepEqual(parseCommandInfo(["--restore", "worktree", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "read", "https://example.com"]), {
+		command: "read",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(extractCommandTokens(["--restore", "worktree", "open", "https://example.com"]), [
+		"open",
+		"https://example.com",
+	]);
 	assert.deepEqual(parseCommandInfo(["open", "--init-script", "/tmp/setup.js", "https://example.com"]), {
 		command: "open",
 		subcommand: "https://example.com",

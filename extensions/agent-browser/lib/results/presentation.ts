@@ -66,6 +66,11 @@ const NETWORK_PREVIEW_FIELD_CANDIDATES = {
 	error: ["error", "failureText", "errorText"] as const,
 };
 const AUTH_SHOW_SAFE_FIELDS = ["name", "profile", "url", "username", "createdAt", "updatedAt"] as const;
+const MAX_A11Y_VIOLATION_LINES = 15;
+const MAX_A11Y_TARGETS_PER_VIOLATION = 3;
+const MAX_WEBMCP_TOOL_LINES = 20;
+const MAX_WEBMCP_OUTPUT_LINES = 6;
+const MODEL_FACING_PREVIEW_CHARS = 2_000;
 
 interface NavigationSummary {
 	title?: string;
@@ -211,6 +216,176 @@ function firstLine(value: string, maxChars = 160): string {
 	return truncateText(value.split("\n", 1)[0] ?? value, maxChars);
 }
 
+function getNumberField(data: Record<string, unknown>, key: string): number | undefined {
+	const value = data[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function formatRatioPercent(ratio: number): string {
+	return `${Number((ratio * 100).toFixed(2))}%`;
+}
+
+function getA11yViolations(data: Record<string, unknown>): unknown[] | undefined {
+	return getArrayField(data, "violations");
+}
+
+function getA11yCounts(data: Record<string, unknown>): Record<string, unknown> | undefined {
+	const counts = data.counts;
+	return isRecord(counts) ? counts : undefined;
+}
+
+function formatA11ySummary(data: Record<string, unknown>): string | undefined {
+	const counts = getA11yCounts(data);
+	const violations = counts ? getNumberField(counts, "violations") : undefined;
+	if (violations === undefined) return undefined;
+	const axeVersion = getStringField(data, "axeVersion");
+	const suffix = axeVersion ? ` (axe ${axeVersion})` : "";
+	return violations === 0 ? `A11y: no violations${suffix}` : `A11y: ${formatCount(violations, "violation")}${suffix}`;
+}
+
+function formatA11yText(data: Record<string, unknown>): string | undefined {
+	const violations = getA11yViolations(data);
+	if (!violations) return undefined;
+	const counts = getA11yCounts(data);
+	const lines: string[] = [];
+	const url = getStringField(data, "url");
+	if (url) lines.push(`URL: ${redactModelFacingText(url)}`);
+	const axeVersion = getStringField(data, "axeVersion");
+	const countParts = counts
+		? [
+				`violations: ${getNumberField(counts, "violations") ?? violations.length}`,
+				`incomplete: ${getNumberField(counts, "incomplete") ?? 0}`,
+				`passes: ${getNumberField(counts, "passes") ?? 0}`,
+			]
+		: [];
+	if (axeVersion || countParts.length > 0) {
+		lines.push(`${axeVersion ? `axe-core ${axeVersion}` : "axe-core"}${countParts.length > 0 ? ` — ${countParts.join(", ")}` : ""}`);
+	}
+	if (violations.length === 0) {
+		lines.push("No accessibility violations reported.");
+		return lines.join("\n");
+	}
+	const shown = violations.slice(0, MAX_A11Y_VIOLATION_LINES);
+	for (const violation of shown) {
+		if (!isRecord(violation)) {
+			lines.push(`- ${redactModelFacingText(stringifyModelFacing(violation))}`);
+			continue;
+		}
+		const impact = getStringField(violation, "impact") ?? "unknown";
+		const id = getStringField(violation, "id") ?? "unknown-rule";
+		const help = getStringField(violation, "help");
+		const nodes = getArrayField(violation, "nodes") ?? [];
+		const nodeCount = getNumberField(violation, "nodeCount") ?? nodes.length;
+		lines.push(`[${impact}] ${id}${help ? `: ${redactModelFacingText(firstLine(help, 120))}` : ""} (${formatCount(nodeCount, "node")})`);
+		for (const node of nodes.slice(0, MAX_A11Y_TARGETS_PER_VIOLATION)) {
+			if (!isRecord(node)) continue;
+			const targets = getArrayField(node, "target") ?? [];
+			const targetText = targets.map((target) => stringifyModelFacing(target)).join(" >> ");
+			if (targetText.length > 0) lines.push(`  - ${redactModelFacingTextIfSensitive(truncateText(targetText, 160))}`);
+		}
+		const hiddenTargets = Math.max(0, nodeCount - Math.min(nodes.length, MAX_A11Y_TARGETS_PER_VIOLATION));
+		if (hiddenTargets > 0) lines.push(`  - (+${hiddenTargets} more)`);
+	}
+	if (violations.length > shown.length) {
+		lines.push(`(+${violations.length - shown.length} more violations)`);
+	}
+	return lines.join("\n");
+}
+
+function formatWebmcpSummary(commandInfo: CommandInfo, data: Record<string, unknown>): string | undefined {
+	if (commandInfo.subcommand === "list") {
+		const tools = getArrayField(data, "tools");
+		if (!tools) return undefined;
+		return tools.length === 0 ? "WebMCP tools: none" : `WebMCP tools: ${tools.length}`;
+	}
+	const status = getStringField(data, "status");
+	const toolName = getStringField(data, "toolName");
+	if (commandInfo.subcommand === "cancel") {
+		return status ? `WebMCP cancel: ${status}` : "WebMCP cancel requested";
+	}
+	if (status && toolName) return `WebMCP ${toolName}: ${status}`;
+	if (status) return `WebMCP: ${status}`;
+	return undefined;
+}
+
+function formatWebmcpText(commandInfo: CommandInfo, data: Record<string, unknown>): string | undefined {
+	if (commandInfo.subcommand === "list") {
+		const tools = getArrayField(data, "tools");
+		if (!tools) return undefined;
+		const lines: string[] = [];
+		if (data.experimental === true) lines.push("Experimental WebMCP surface; tool metadata is page-provided and untrusted.");
+		if (tools.length === 0) {
+			lines.push("No page tools exposed.");
+			return lines.join("\n");
+		}
+		for (const tool of tools.slice(0, MAX_WEBMCP_TOOL_LINES)) {
+			if (!isRecord(tool)) {
+				lines.push(`- ${redactModelFacingText(stringifyModelFacing(tool))}`);
+				continue;
+			}
+			const name = getStringField(tool, "name") ?? "(unnamed tool)";
+			const description = getStringField(tool, "description");
+			const origin = getStringField(tool, "origin");
+			const details = [origin ? redactModelFacingText(origin) : undefined].flatMap((detail) => (detail ? [detail] : []));
+			lines.push(`- ${redactModelFacingText(name)}${description ? ` — ${redactModelFacingText(firstLine(description, 160))}` : ""}${details.length > 0 ? ` (${details.join(", ")})` : ""}`);
+		}
+		if (tools.length > MAX_WEBMCP_TOOL_LINES) {
+			lines.push(`(+${tools.length - MAX_WEBMCP_TOOL_LINES} more tools)`);
+		}
+		return lines.join("\n");
+	}
+
+	const lines: string[] = [];
+	const toolName = getStringField(data, "toolName");
+	if (toolName) lines.push(`Tool: ${redactModelFacingText(toolName)}`);
+	const status = getStringField(data, "status");
+	if (status) {
+		const rawStatus = getStringField(data, "rawStatus");
+		lines.push(`Status: ${status}${rawStatus && rawStatus !== status ? ` (${rawStatus})` : ""}`);
+	}
+	const durationMs = getNumberField(data, "durationMs");
+	if (durationMs !== undefined) lines.push(`Duration: ${durationMs} ms`);
+	const invocationId = getStringField(data, "invocationId");
+	if (invocationId) lines.push(`Invocation: ${invocationId}`);
+	const output = isRecord(data.output) ? getArrayField(data.output, "content") : undefined;
+	for (const item of output?.slice(0, MAX_WEBMCP_OUTPUT_LINES) ?? []) {
+		if (!isRecord(item)) continue;
+		const text = getStringField(item, "text");
+		if (text) lines.push(redactModelFacingTextIfSensitive(truncateText(text, MODEL_FACING_PREVIEW_CHARS)));
+	}
+	if (output && output.length > MAX_WEBMCP_OUTPUT_LINES) {
+		lines.push(`(+${output.length - MAX_WEBMCP_OUTPUT_LINES} more output blocks)`);
+	}
+	return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function formatRecordText(data: Record<string, unknown>): string | undefined {
+	const lines: string[] = [];
+	const path = getStringField(data, "path");
+	if (path) lines.push(`Path: ${path}`);
+	const frames = getNumberField(data, "frames");
+	if (frames !== undefined) lines.push(`Frames: ${frames}`);
+	const capturedFrames = getNumberField(data, "capturedFrames");
+	if (capturedFrames !== undefined) lines.push(`Captured frames: ${capturedFrames}`);
+	const fps = getNumberField(data, "fps");
+	if (fps !== undefined) lines.push(`FPS: ${fps}`);
+	if (typeof data.cursor === "boolean") lines.push(`Cursor: ${data.cursor}`);
+	if (typeof data.contactSheet === "boolean") lines.push(`Contact sheet: ${data.contactSheet}`);
+	return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function formatScreenshotChangeText(data: Record<string, unknown>): string | undefined {
+	if (typeof data.changed !== "boolean") return undefined;
+	const lines = [`Changed: ${data.changed}`];
+	const revision = getNumberField(data, "revision");
+	if (revision !== undefined) lines.push(`Revision: ${revision}`);
+	const pixelChangeRatio = getNumberField(data, "pixelChangeRatio");
+	if (pixelChangeRatio !== undefined) lines.push(`Pixel change: ${formatRatioPercent(pixelChangeRatio)}`);
+	const threshold = getNumberField(data, "threshold");
+	if (threshold !== undefined) lines.push(`Threshold: ${formatRatioPercent(threshold)}`);
+	return lines.join("\n");
+}
+
 function formatDiagnosticSummary(commandInfo: CommandInfo, data: Record<string, unknown>): string | undefined {
 	if (commandInfo.command === "session") {
 		const sessions = getArrayField(data, "sessions");
@@ -260,6 +435,16 @@ function formatDiagnosticSummary(commandInfo: CommandInfo, data: Record<string, 
 		if (status) return `Doctor: ${status}`;
 		const checks = getArrayField(data, "checks") ?? getArrayField(data, "issues") ?? getArrayField(data, "problems");
 		if (checks) return `Doctor: ${formatCount(checks.length, "item")}`;
+	}
+
+	if (commandInfo.command === "a11y") {
+		const a11ySummary = formatA11ySummary(data);
+		if (a11ySummary) return a11ySummary;
+	}
+
+	if (commandInfo.command === "webmcp") {
+		const webmcpSummary = formatWebmcpSummary(commandInfo, data);
+		if (webmcpSummary) return webmcpSummary;
 	}
 
 	return undefined;
@@ -585,6 +770,10 @@ function formatDiagnosticText(commandInfo: CommandInfo, data: Record<string, unk
 	if (commandInfo.command === "errors") return formatErrorsText(data);
 	if (commandInfo.command === "dashboard") return formatDashboardText(data);
 	if (commandInfo.command === "doctor") return formatDoctorText(data);
+	if (commandInfo.command === "a11y") return formatA11yText(data);
+	if (commandInfo.command === "webmcp") return formatWebmcpText(commandInfo, data);
+	if (commandInfo.command === "record") return formatRecordText(data);
+	if (commandInfo.command === "screenshot") return formatScreenshotChangeText(data);
 	return undefined;
 }
 
@@ -805,11 +994,11 @@ function formatArtifactSummary(artifacts: FileArtifactMetadata[]): string | unde
 	return `Saved ${artifacts.length} artifacts: ${artifacts.map((artifact) => `${artifact.kind} ${artifact.path}`).join(", ")}`;
 }
 
-function formatArtifactMetadataLines(artifacts: FileArtifactMetadata[]): string[] {
+function formatArtifactMetadataLines(artifacts: FileArtifactMetadata[], options: { unchangedImage?: boolean } = {}): string[] {
 	return artifacts.map((artifact, index) => {
 		if (isRecordingStartArtifact(artifact)) {
 			return [
-				`${formatArtifactLabel(artifact)}: ${artifact.path}`,
+				`${options.unchangedImage ? "Image unchanged (previous capture kept)" : formatArtifactLabel(artifact)}: ${artifact.path}`,
 				`Artifact type: ${artifact.kind}`,
 				`Requested path: ${artifact.requestedPath ?? artifact.path}`,
 				`Absolute path: ${artifact.absolutePath}`,
@@ -822,7 +1011,7 @@ function formatArtifactMetadataLines(artifacts: FileArtifactMetadata[]): string[
 		}
 
 		return [
-			`${formatArtifactLabel(artifact)}: ${artifact.path}`,
+			`${options.unchangedImage ? "Image unchanged (previous capture kept)" : formatArtifactLabel(artifact)}: ${artifact.path}`,
 			`Artifact type: ${artifact.kind}`,
 			`Requested path: ${artifact.requestedPath ?? artifact.path}`,
 			`Absolute path: ${artifact.absolutePath}`,
@@ -1292,8 +1481,14 @@ function formatSummary(commandInfo: CommandInfo, data: unknown): string {
 			const port = typeof data.port === "number" ? ` on port ${data.port}` : "";
 			return `Stream ${data.enabled === true ? "enabled" : "disabled"}${port}`;
 		}
-		if (commandInfo.command === "screenshot" && typeof data.path === "string") {
-			return `Screenshot saved: ${data.path}`;
+		if (commandInfo.command === "screenshot") {
+			if (data.changed === false) {
+				const revision = getNumberField(data, "revision");
+				return revision !== undefined ? `Screenshot unchanged (revision ${revision})` : "Screenshot unchanged";
+			}
+			if (typeof data.path === "string") {
+				return `Screenshot saved: ${data.path}`;
+			}
 		}
 		const diagnosticSummary = formatDiagnosticSummary(commandInfo, data);
 		if (diagnosticSummary) {
@@ -1633,8 +1828,14 @@ export async function buildToolPresentation(options: {
 	const data = enrichStreamStatusData(commandInfo, envelope?.data);
 	const artifacts = await extractFileArtifacts({ artifactRequest, commandInfo, cwd, data, sessionName });
 	const artifactSummary = formatArtifactSummary(artifacts);
-	const summary = artifactSummary ?? formatSummary(commandInfo, data);
-	const artifactText = artifacts.length > 0 ? formatArtifactMetadataLines(artifacts).join("\n") : undefined;
+	// `screenshot --if-changed` writes nothing when the capture matches the baseline, but the
+	// requested path still yields an artifact, so state that the image was not rewritten.
+	const unchangedScreenshot = commandInfo.command === "screenshot" && isRecord(data) && data.changed === false;
+	const summary = (unchangedScreenshot ? formatSummary(commandInfo, data) : undefined) ?? artifactSummary ?? formatSummary(commandInfo, data);
+	const artifactText = artifacts.length > 0 ? formatArtifactMetadataLines(artifacts, { unchangedImage: commandInfo.command === "screenshot" && isRecord(data) && data.changed === false }).join("\n") : undefined;
+	// Recording artifacts exist from `record start` onward, so keep the capture settings visible
+	// alongside the artifact block instead of dropping them with the body text.
+	const recordingText = artifacts.length > 0 && commandInfo.command === "record" && isRecord(data) ? formatRecordText(data) : undefined;
 	const presentation =
 		commandInfo.command === "batch" && Array.isArray(data)
 			? await buildBatchPresentation({ artifactManifest, artifactRequests: options.batchArtifactRequests, cwd, data: data as AgentBrowserBatchResult[], persistentArtifactStore, sessionName, summary })
@@ -1642,7 +1843,16 @@ export async function buildToolPresentation(options: {
 				? await buildSnapshotPresentation(data, persistentArtifactStore, artifactManifest)
 				: {
 						artifacts: artifacts.length > 0 ? artifacts : undefined,
-						content: [{ type: "text" as const, text: artifactText ?? formatContentText(commandInfo, data) }],
+						content: [
+							{
+								type: "text" as const,
+								text: artifactText
+									? [artifactText, recordingText, unchangedScreenshot ? formatScreenshotChangeText(data) : undefined]
+											.filter((part): part is string => typeof part === "string" && part.length > 0)
+											.join("\n\n")
+									: formatContentText(commandInfo, data),
+							},
+						],
 						data,
 						summary,
 				  };

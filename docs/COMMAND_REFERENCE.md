@@ -383,6 +383,8 @@ CDP target ids from `tab list --json` also work as tab references and stay stabl
 | `webmcp cancel <id>` | Cancel an active WebMCP invocation. |
 | `removeinitscript <id>` | Remove an init script registered through upstream init-script mechanisms. |
 
+A11y, WebMCP, recording, and conditional-screenshot results also render compactly in the native tool: an audit reports `A11y: N violations (axe <version>)` with one line per rule (impact, rule id, node count, first targets) instead of the full axe payload; `webmcp list` reports `WebMCP tools: N` with one line per page tool and marks the surface as experimental and untrusted; `webmcp invoke`/`result` report the tool name, status, and duration with bounded output text; `record start` keeps the capture settings (fps, cursor, contact sheet) beside the artifact block, and `record stop` adds frame, captured-frame, and fps counts; `screenshot --if-changed` reports `Screenshot unchanged (revision N)` plus the pixel-change ratio and threshold when nothing was captured, and labels the retained file `Image unchanged (previous capture kept)` instead of `Saved image`.
+
 When these diagnostic commands are invoked through the native `agent_browser` tool, structured console, page-error, React, Web Vitals, and SPA outputs render as compact summaries when possible, with large outputs previewed and spilled instead of dumped into context. Large outputs are previewed with a `Full output path:` spill file instead of dumping the entire payload into context.
 
 `trace` and `profiler` share upstream Chrome tracing machinery. Do not run them at the same time. The wrapper tracks owner state it observes in the current Pi session and blocks conflicting starts/stops with "wrapper believes ..." wording because direct upstream CLI use or browser restarts can desynchronize wrapper-local state.
@@ -431,7 +433,7 @@ When these commands are invoked through the native `agent_browser` tool, structu
 
 - `--profile <name|path>`: reuse Chrome profile login state or use a persistent custom profile. Environment: `AGENT_BROWSER_PROFILE`.
 - `--session <name>`: use an isolated session. Environment: `AGENT_BROWSER_SESSION`.
-- `--restore [name]`: auto-save and restore cookies plus local storage for this run; without a name it uses the `--session` value as the restore key. Environment: `AGENT_BROWSER_RESTORE`.
+- `--restore [name]`: auto-save and restore cookies plus local storage for this run; without a name it uses the `--session` value as the restore key. Native tool calls accept both `--restore <name>` and `--restore=<name>`; the wrapper resolves the optional name against the upstream command names so the command after it still parses. Environment: `AGENT_BROWSER_RESTORE`.
 - `--restore-save <policy>`: restore auto-save policy `auto`, `always`, or `never`. Environment: `AGENT_BROWSER_RESTORE_SAVE`.
 - `--restore-check-url <glob>`, `--restore-check-text <txt>`, `--restore-check-fn <js>`: validate restored state against the current URL, visible text, or a truthy JavaScript expression before using it. Environments: `AGENT_BROWSER_RESTORE_CHECK_URL`, `AGENT_BROWSER_RESTORE_CHECK_TEXT`, `AGENT_BROWSER_RESTORE_CHECK_FN`.
 - `--namespace <name>`: isolate daemon sockets and restore-state directories. Environment: `AGENT_BROWSER_NAMESPACE`.

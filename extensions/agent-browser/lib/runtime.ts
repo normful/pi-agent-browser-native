@@ -81,6 +81,87 @@ const LAUNCH_SCOPED_FLAG_LABEL = LAUNCH_SCOPED_FLAG_DEFINITIONS.map((definition)
  * tab-correction (the `tab list` + re-select cycle).
  */
 const LAUNCH_SCOPED_TAB_CORRECTION_FLAGS = new Set(["--profile", "--restore", "--session-name", "--state"] as const);
+/**
+ * Top-level upstream commands, used to resolve flags whose optional value is a free-form name.
+ * Keep this list in step with the installed upstream help surface documented in
+ * docs/COMMAND_REFERENCE.md and scripts/agent-browser-capability-baseline.mjs.
+ */
+const TOP_LEVEL_COMMANDS = new Set([
+	"a11y",
+	"addinitscript",
+	"auth",
+	"back",
+	"batch",
+	"chat",
+	"check",
+	"click",
+	"clipboard",
+	"close",
+	"confirm",
+	"connect",
+	"console",
+	"cookies",
+	"dashboard",
+	"dblclick",
+	"deny",
+	"device",
+	"diff",
+	"doctor",
+	"download",
+	"drag",
+	"errors",
+	"eval",
+	"fill",
+	"find",
+	"focus",
+	"forward",
+	"get",
+	"goto",
+	"har",
+	"highlight",
+	"hover",
+	"install",
+	"inspect",
+	"is",
+	"keyboard",
+	"mcp",
+	"mouse",
+	"navigate",
+	"network",
+	"open",
+	"pdf",
+	"plugin",
+	"press",
+	"profiles",
+	"profiler",
+	"pushstate",
+	"react",
+	"read",
+	"record",
+	"reload",
+	"removeinitscript",
+	"screenshot",
+	"scroll",
+	"scrollintoview",
+	"select",
+	"session",
+	"set",
+	"skills",
+	"snapshot",
+	"state",
+	"storage",
+	"stream",
+	"tab",
+	"tap",
+	"trace",
+	"type",
+	"uncheck",
+	"upgrade",
+	"upload",
+	"vitals",
+	"wait",
+	"webmcp",
+]);
 const OPEN_COMMANDS = new Set(["goto", "navigate", "open"]);
 const OPENAI_HEADLESS_COMPAT_HOSTS = new Set(["chat.com", "chat.openai.com", "chatgpt.com"]);
 const AGENT_BROWSER_IDLE_TIMEOUT_ENV = "AGENT_BROWSER_IDLE_TIMEOUT_MS";
@@ -1105,6 +1186,15 @@ function findCommandStartIndex(args: string[]): number | undefined {
 	for (let index = 0; index < args.length; index += 1) {
 		const token = args[index];
 		if (token.startsWith("--session=")) {
+			continue;
+		}
+		if (token === "--restore") {
+			// `--restore [name]` takes an optional restore key. Upstream consumes the next token as
+			// that key unless the token is a known command, so mirror that resolution here.
+			const nextToken = args[index + 1];
+			if (nextToken !== undefined && !nextToken.startsWith("-") && !TOP_LEVEL_COMMANDS.has(nextToken)) {
+				index += 1;
+			}
 			continue;
 		}
 		if (token.startsWith("-")) {
