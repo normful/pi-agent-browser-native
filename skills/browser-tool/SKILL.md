@@ -144,7 +144,11 @@ find <role|text|label|placeholder|alt|title|testid|first|last|nth> <value> <acti
 - `screenshot [path]` — capture page screenshot
 - `screenshot --full` — full-page screenshot (scrolls to capture everything)
 - `screenshot --annotate` — numbered labels + legend for vision models (pass `--annotate` as top-level flag, not inside batch step args)
+- `screenshot --if-changed <path>` — capture only when the page visually changed since this tab's last capture; skip the write when it did not
+- `screenshot --if-changed <path> --threshold <0-1>` — tolerate that fraction of changed pixels before treating the capture as changed
 - `pdf <path>` — save as PDF
+
+`--if-changed` is for "did my action change anything?" checks and for repeated QA passes: a skipped capture writes no file and attaches no image, and the result reports `changed`, `pixelChangeRatio`, `revision`, and `threshold`. Two caveats: `changed` is the authority, not the path (upstream echoes the path even when it wrote nothing, so the older file is still on disk), and the baseline is per tab and per capture mode, so a *different* path in the same tab can come back unchanged with no file created. Use plain `screenshot <path>` when you need the file to exist. `--threshold` is a fraction of changed pixels, not a per-pixel colour tolerance, and it only sees pixels: text changes that keep the same box, `aria-*` changes, and hidden DOM do not register.
 
 ### Cookies & Storage
 - `cookies get [--filter <pattern>]` — list cookies
