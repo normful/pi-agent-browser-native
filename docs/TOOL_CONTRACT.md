@@ -29,13 +29,14 @@ The tool also needs an operating playbook, not just a capability list. The model
 
 <!-- agent-browser-playbook:start shared-guidelines -->
 <!-- Generated from extensions/agent-browser/lib/playbook.ts. Run `npm run docs -- playbook write` to update. -->
-- Standard workflow: open the page, snapshot -i, interact using current @refs from that snapshot, and re-snapshot after navigation, scrolling, rerendering, or other major DOM changes because refs can become stale.
+- Standard workflow: open the page, snapshot -i, interact using current @refs from that snapshot, and re-snapshot after navigation, scrolling, rerendering, or other major DOM changes because refs can become stale. For repeat checks of a mostly static page, snapshot --delta returns full state once and then unchanged or compact structural deltas.
 - When a visible text or accessible-name target should survive ref churn, prefer find locators such as role, text, label, placeholder, alt, title, or testid with the intended action instead of guessing a CSS selector.
 - Do not assume Playwright selector dialects such as text=Close or button:has-text('Close') are supported wrapper syntax unless current upstream agent-browser behavior has been verified.
 - For authenticated or user-specific content like feeds, inboxes, dashboards, and accounts, prefer --profile Default on the first browser call and let the implicit session carry continuity. Use --auto-connect only if profile-based reuse is unavailable or the task is specifically about attaching to a running debug-enabled browser.
 - Do not invent fixed explicit session names for routine tasks. Use the implicit session unless you truly need multiple isolated browser sessions in the same conversation.
-- When using --profile, --session-name, --cdp, --state, --auto-connect, --init-script, or --enable, put them on the first command for that session. If you intentionally use an explicit --session, keep using that same explicit session for follow-ups.
-- If you already used the implicit session and now need launch-scoped flags like --profile, --session-name, --cdp, --state, --auto-connect, --init-script, or --enable, retry with sessionMode set to fresh or pass an explicit --session for the new launch. After a successful unnamed fresh launch, later auto calls follow that new session.
+- When using --profile, --restore, --namespace, --session-name, --cdp, --state, --auto-connect, --init-script, or --enable, put them on the first command for that session. If you intentionally use an explicit --session, keep using that same explicit session for follow-ups.
+- If you already used the implicit session and now need launch-scoped flags like --profile, --restore, --namespace, --session-name, --cdp, --state, --auto-connect, --init-script, or --enable, retry with sessionMode set to fresh or pass an explicit --session for the new launch. After a successful unnamed fresh launch, later auto calls follow that new session.
+- When the task needs persisted cookies and localStorage across launches, prefer upstream --restore [name] with --namespace instead of hand-managed --state files; in native tool calls write a named restore as --restore=<name> so wrapper command detection stays unambiguous, and keep that launch on the first call for the session.
 - For React introspection, launch the page with --enable react-devtools before first navigation, then use react tree, react inspect <fiberId>, react renders start/stop, or react suspense; use vitals [url] for Core Web Vitals and hydration timing, and pushstate <url> for client-side SPA navigation.
 - For first-navigation setup, use open without a URL plus network route --resource-type <csv>, cookies set --curl <file>, or --init-script/--enable before navigate/opening the target page.
 - If a session lands on the wrong page or tab, an interaction changes origin unexpectedly, or an open call returns blocked, blank, or otherwise unexpected results, use tab list / tab <tab-id-or-label> / snapshot -i to recover state before retrying different URLs or fallback strategies. Only use wait with an explicit argument like milliseconds, --load <state>, --url <matcher>, --fn <js>, or --text <matcher>.
@@ -104,7 +105,7 @@ Examples:
 Behavior:
 - if `args` already include `--session`, upstream session choice wins
 - `"auto"` prepends the current extension-managed active session when appropriate
-- `"fresh"` rotates that managed session to a fresh upstream launch so startup-scoped flags like `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` apply and later default calls follow the new browser
+- `"fresh"` rotates that managed session to a fresh upstream launch so startup-scoped flags like `--profile`, `--restore`, `--namespace`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` apply and later default calls follow the new browser
 
 Recommended use:
 - use `"auto"` for the common browse/snapshot/click flow inside one `pi` session
@@ -226,11 +227,11 @@ If `agent-browser` is not on `PATH`, fail with a message that:
 - reconstruct the current extension-managed session and latest `artifactManifest` from persisted tool details on resume/reload so later default calls keep following the active managed browser and can continue reporting artifact retention state
 - when an unnamed `sessionMode: "fresh"` launch succeeds, make it the new extension-managed session so later default calls keep using it
 - if that unnamed fresh launch replaced an already-active managed session, best-effort close the old managed session after the switch succeeds
-- treat explicit caller-provided `--session` choices as user-managed; `--session` isolates a live browser session but is not a persisted tab/auth restore mechanism after `close`, so use `--profile`, `--session-name`, or `--state` when persisted auth/tab state is required
+- treat explicit caller-provided `--session` choices as user-managed; `--session` isolates a live browser session but is not a persisted tab/auth restore mechanism after `close`, so use `--profile`, `--restore`, `--session-name`, or `--state` when persisted auth/tab state is required
 - pass explicit `--profile` straight through to upstream `agent-browser`; no profile-cloning or isolation layer is added in v1
 <!-- agent-browser-playbook:start wrapper-tab-recovery -->
 <!-- Generated from extensions/agent-browser/lib/playbook.ts. Run `npm run docs -- playbook write` to update. -->
-- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
+- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --restore, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
 - After a target tab is known for a session, later active-tab commands best-effort pin that tab inside the same upstream invocation when reconnect drift would otherwise move the command to a restored/background tab.
 - After a successful command on a known target tab, agent_browser also best-effort restores that intended tab if a restored/background tab steals focus after the command completes.
 - If a known session target unexpectedly reports about:blank, agent_browser preserves the prior intended target, best-effort re-selects it when it still exists, and reports exact recovery guidance when it cannot be re-selected.
@@ -238,7 +239,7 @@ If `agent-browser` is not on `PATH`, fail with a message that:
 - on local Unix launches, set a short private socket directory for wrapper-spawned `agent-browser` processes so extension-generated session names do not fail the upstream Unix socket-path length limit in longer cwd/session-name combinations
 - keep wrapper-spawned commands below the upstream CLI IPC read-timeout budget by clamping `AGENT_BROWSER_DEFAULT_TIMEOUT` to 25 seconds and stopping a stuck child process before the upstream 30-second retry path begins
 - treat successful plain-text inspection commands like `--help` and `--version` as stateless: do not inject the implicit managed session and do not let those calls claim the managed-session slot
-- if startup-scoped flags like `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` are supplied after the implicit session is already active while `sessionMode` is `"auto"`, return a validation error with a structured recovery hint that recommends `sessionMode: "fresh"`
+- if startup-scoped flags like `--profile`, `--restore`, `--namespace`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` are supplied after the implicit session is already active while `sessionMode` is `"auto"`, return a validation error with a structured recovery hint that recommends `sessionMode: "fresh"`
 - for direct headless local Chrome launches to `chat.com` / `chatgpt.com` / `chat.openai.com`, allow a narrow compatibility fallback that injects a normal Chrome `--user-agent` only when the caller did not explicitly provide one and did not choose `--headed`, `--cdp`, `--auto-connect`, or a provider-backed launch
 
 ## Non-goals

@@ -1,45 +1,190 @@
 {
   "purpose": "Stable real upstream agent-browser output-shape expectations for the opt-in contract suite.",
-  "targetVersion": "0.27.0",
+  "targetVersion": "0.38.2",
   "commands": {
     "version": {
-      "detailKeys": ["args", "command", "effectiveArgs", "exitCode", "inspection", "sessionMode", "summary"]
+      "detailKeys": [
+        "args",
+        "command",
+        "effectiveArgs",
+        "exitCode",
+        "inspection",
+        "sessionMode",
+        "summary"
+      ]
     },
     "open": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"],
-      "dataKeys": ["title", "url"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "title",
+        "url"
+      ]
     },
     "eval": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "origin",
+        "result"
+      ]
     },
     "snapshot": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ]
     },
     "batch": {
-      "detailKeys": ["args", "batchSteps", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"]
+      "detailKeys": [
+        "args",
+        "batchSteps",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ]
     },
     "pushstate": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"],
-      "dataKeys": ["url"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "url"
+      ]
     },
     "vitals": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "summary", "usedImplicitSession"],
-      "dataKeys": ["report"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "fcp",
+        "lcp",
+        "ttfb",
+        "url"
+      ]
     },
     "networkRoute": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "subcommand", "summary", "usedImplicitSession"],
-      "dataKeys": ["routed"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "subcommand",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "routed"
+      ]
     },
     "cookiesCurl": {
-      "detailKeys": ["args", "command", "data", "effectiveArgs", "exitCode", "sessionMode", "sessionName", "subcommand", "summary", "usedImplicitSession"],
-      "dataKeys": ["set"]
+      "detailKeys": [
+        "args",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "sessionMode",
+        "sessionName",
+        "subcommand",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "set"
+      ]
     },
     "reactMissingRenderer": {
-      "detailKeys": ["args", "command", "effectiveArgs", "error", "exitCode", "parseError", "sessionMode", "sessionName", "stderr", "subcommand", "summary", "usedImplicitSession"]
+      "detailKeys": [
+        "args",
+        "command",
+        "effectiveArgs",
+        "error",
+        "exitCode",
+        "parseError",
+        "sessionMode",
+        "sessionName",
+        "stderr",
+        "subcommand",
+        "summary",
+        "usedImplicitSession"
+      ]
     },
     "waitDownload": {
-      "detailKeys": ["args", "artifacts", "command", "data", "effectiveArgs", "exitCode", "savedFile", "savedFilePath", "sessionMode", "sessionName", "subcommand", "summary", "usedImplicitSession"],
-      "dataKeys": ["path"]
+      "detailKeys": [
+        "args",
+        "artifacts",
+        "command",
+        "data",
+        "effectiveArgs",
+        "exitCode",
+        "savedFile",
+        "savedFilePath",
+        "sessionMode",
+        "sessionName",
+        "subcommand",
+        "summary",
+        "usedImplicitSession"
+      ],
+      "dataKeys": [
+        "lifecycle",
+        "path"
+      ]
     }
   }
 }

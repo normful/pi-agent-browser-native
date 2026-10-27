@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- fixed the extension reporting `Cannot read properties of undefined (reading 'trim')` whenever another extension started a run with `pi.sendMessage(..., { triggerTurn: true })`: the `before_agent_start` handler now injects the project rule only for user prompts, and the prompt classifier tolerates an absent `prompt`
+- fixed wrapper-spawned helper calls (`get title`/`get url` summaries, `tab list` pin and correction probes, managed-session `close`) sending a different launch environment than the main tool call: agent-browser 0.31.0 and later restart a daemon whose configuration differs from the incoming one, which relaunched the browser and lost the open page after the first tool call
+
+### Compatibility
+- moved the pi development baseline from `@earendil-works/*` `0.74.0` to `1.4.0`, where `before_agent_start` is a union of user-prompt and custom-message runs, so `tsc` now rejects handlers that read `event.prompt` without narrowing on `messageType`
+- moved the upstream capability baseline and command reference from `agent-browser` `0.27.0` to `0.38.2`, adding `read [url]`, `a11y`, `webmcp`, the `--restore`/`--namespace` family, `--pin-tab`, `--input-mode`, `--ca-cert`, `--webgpu`, `--no-webmcp`, `--idle-timeout`, `snapshot --delta`, CDP target ids as tab refs, and the plugin, credential-provider, and session-inspection surfaces
+
 ## 0.2.23 - 2026-05-10
 
 ### Fixed

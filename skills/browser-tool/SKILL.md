@@ -18,17 +18,17 @@ Renders JS, handles SPAs, respects cookies/sessions. Replaces `web_fetch`.
 
 ## Interaction / testing (click, fill, navigate)
 
-**⚠️ Multi-step requires `--session <session-id>`** on every invocation. Choose your own `session-id`.
+**Multi-step flows reuse the extension-managed session by default.** Consecutive `sessionMode: "auto"` calls with no `--session` stay on the same browser, so the page, refs, and tab survive between tool calls.
 
 ```json
-["--session", "sess1", "open", "<url>"]
-["--session", "sess1", "snapshot", "-i"]
-["--session", "sess1", "click", "e5"]
+["open", "<url>"]
+["snapshot", "-i"]
+["click", "e5"]
 ```
 
-**⚠️ The tool never prints or returns its session ID.** `sessionMode=auto` defaults to a session named `"default"` but silently resets to `about:blank` between commands. You must pass `--session <session-id>` **every** multi-step command to maintain state.
+**When to add `--session <name>`:** only when you need a second, isolated browser alongside the default one. Every call for that session must repeat the same `--session <name>`.
 
-One-shot commands (`read <url>`) don't need session ID.
+One-shot commands (`read <url>`) don't need a session.
 
 ## Commands
 
@@ -110,14 +110,14 @@ One-shot commands (`read <url>`) don't need session ID.
 ["--session", "sess1", "batch", "[\"open\", \"url\"]", "[\"snapshot\", \"-i\"]"]
 ```
 
-`--bail` stops on first error. Steps always start on `about:blank` — step 1 must be `open <url>`.
+`--bail` stops on first error. In a `fresh` session step 1 must be `open <url>`; in `auto` mode a batch continues from the page the session already has.
 
 ### Session Modes
 | Mode | `--session <name>`? | Behavior |
 |------|---------------------|----------|
-| `auto` (default) | No | ❌ Silently opens `about:blank` — tab reuse broken. Session name is `"default"` but not printed. |
-| `auto` | Yes | ✅ Reuses session. Refs go stale after nav — re-snapshot. |
-| `fresh` | — | Starts on `about:blank` — must `open <url>` first. |
+| `auto` (default) | No | ✅ Reuses the extension-managed session across calls; the page and tab persist. The tool does not print that internal name. |
+| `auto` | Yes | ✅ Reuses the named session; independent of the managed one. Refs go stale after nav — re-snapshot. |
+| `fresh` | — | Starts on `about:blank` in a new upstream launch — must `open <url>` first. |
 
 ### Find Elements (locator-based)
 Use when refs are stale or you want to locate by semantics without a prior snapshot:
@@ -200,8 +200,8 @@ These work as JSON commands but are typically used via direct `agent-browser` CL
 | `snapshot -c` to read a URL (info gathering) | `read <url>` |
 | `eval "document.body.innerText"` for page text | `read <url>` |
 | `web_fetch` tool for page content | `read <url>` via browser tool |
-| `auto` without `--session` (expecting tab reuse) | Prepend `--session <name>` to every multi-step command |
-| Not knowing the session ID (tool never prints it) | Pass `--session <name>` explicitly; run `agent-browser session` to check |
+| Reinventing a session name for a single flow | Omit `--session`; `auto` reuses the managed session across calls |
+| Expecting `fresh` to keep the current page | `fresh` starts on `about:blank`; call `open <url>` again |
 | `batch` with nested arrays | Use JSON-encoded strings: `"[\"open\", \"url\"]"` |
 
 # Full command reference

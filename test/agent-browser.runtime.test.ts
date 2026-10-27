@@ -629,7 +629,23 @@ test("buildExecutionPlan keeps inspection commands stateless", () => {
 });
 
 test("buildExecutionPlan rejects missing values for value-taking flags before parsing commands", () => {
-	for (const args of [["--session"], ["--profile"], ["--session-name"], ["--cdp"], ["--state"], ["--init-script"], ["--enable"]] as const) {
+	for (const args of [
+		["--session"],
+		["--namespace"],
+		["--profile"],
+		["--restore-save"],
+		["--restore-check-url"],
+		["--restore-check-text"],
+		["--restore-check-fn"],
+		["--session-name"],
+		["--cdp"],
+		["--ca-cert"],
+		["--input-mode"],
+		["--idle-timeout"],
+		["--state"],
+		["--init-script"],
+		["--enable"],
+	] as const) {
 		const plan = buildExecutionPlan([...args], {
 			freshSessionName: createFreshSessionName("piab-demo-123", "seed", 1),
 			managedSessionActive: false,
@@ -678,6 +694,10 @@ test("buildExecutionPlan allows dash-starting --args values", () => {
 test("buildExecutionPlan blocks startup-scoped flags from silently reusing an active implicit session", () => {
 	for (const { args, flag } of [
 		{ args: ["--profile", "Default", "open", "https://example.com"], flag: "--profile" },
+		{ args: ["--namespace", "piab-demo", "open", "https://example.com"], flag: "--namespace" },
+		{ args: ["--restore", "open", "https://example.com"], flag: "--restore" },
+		{ args: ["--restore=worktree", "open", "https://example.com"], flag: "--restore" },
+		{ args: ["--restore-save", "always", "open", "https://example.com"], flag: "--restore-save" },
 		{ args: ["--session-name", "saved-auth", "open", "https://example.com"], flag: "--session-name" },
 		{ args: ["--cdp", "ws://127.0.0.1:9222/devtools/browser/demo", "open", "https://example.com"], flag: "--cdp" },
 		{ args: ["--state", "/tmp/auth.json", "open", "https://example.com"], flag: "--state" },
@@ -716,9 +736,13 @@ test("buildExecutionPlan allows disabled auto-connect after an active implicit s
 	assert.deepEqual(plan.commandInfo, { command: "open", subcommand: "https://example.com" });
 });
 
-test("hasLaunchScopedTabCorrectionFlag detects profile, session-name, and state but not cdp or auto-connect", () => {
+test("hasLaunchScopedTabCorrectionFlag detects profile, restore, session-name, and state but not cdp or auto-connect", () => {
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--profile", "Default", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--profile=Default", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore=worktree", "open", "https://example.com"]), true);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--namespace", "piab-demo", "open", "https://example.com"]), false);
+	assert.equal(hasLaunchScopedTabCorrectionFlag(["--restore-save", "always", "open", "https://example.com"]), false);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--session-name", "saved", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--session-name=saved", "open", "https://example.com"]), true);
 	assert.equal(hasLaunchScopedTabCorrectionFlag(["--state", "/tmp/auth.json", "open", "https://example.com"]), true);
@@ -730,6 +754,18 @@ test("hasLaunchScopedTabCorrectionFlag detects profile, session-name, and state 
 
 test("parseCommandInfo recognizes open targets after command-scoped init flags", () => {
 	assert.deepEqual(parseCommandInfo(["open", "--enable", "react-devtools", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--namespace", "piab-demo", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore", "open", "https://example.com"]), {
+		command: "open",
+		subcommand: "https://example.com",
+	});
+	assert.deepEqual(parseCommandInfo(["--restore=worktree", "open", "https://example.com"]), {
 		command: "open",
 		subcommand: "https://example.com",
 	});
@@ -934,5 +970,13 @@ test("shouldAppendBrowserSystemPrompt only targets clearly browser-oriented prom
 	assert.equal(shouldAppendBrowserSystemPrompt("Please review browser compatibility docs."), false);
 	assert.equal(shouldAppendBrowserSystemPrompt("Summarize the article at https://example.com/blog/post for the changelog."), false);
 	assert.equal(shouldAppendBrowserSystemPrompt("Please review the repository architecture."), false);
+});
+
+test("shouldAppendBrowserSystemPrompt tolerates prompts absent from extension-triggered runs", () => {
+	// pi >= 1.4.0 fires `before_agent_start` for `pi.sendMessage(..., { triggerTurn: true })`
+	// runs as well; those events carry `message` and no `prompt`, so `event.prompt` is undefined.
+	assert.equal(shouldAppendBrowserSystemPrompt(undefined), false);
+	assert.equal(shouldAppendBrowserSystemPrompt(""), false);
+	assert.equal(shouldAppendBrowserSystemPrompt("   \n\t "), false);
 });
 

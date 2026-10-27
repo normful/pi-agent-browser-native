@@ -38,8 +38,8 @@ test("agentBrowserExtension keeps the full browser playbook in tool metadata and
 	const harness = createExtensionHarness({ cwd: process.cwd() });
 		assert.deepEqual([...harness.handlers.keys()].sort(), ["before_agent_start", "session_shutdown", "session_start", "tool_call"]);
 		assert.equal(harness.tool.name, "browser");
-		assert.match(harness.tool.description, /Automated browser/);
-		assert.match(harness.tool.promptSnippet, /real web workflows/);
+		assert.match(harness.tool.description, /Default browser automation/);
+		assert.match(harness.tool.promptSnippet, /Quick browser automation/);
 
 	const expectedGuidelines = [
 		...TOOL_PROMPT_GUIDELINES_PREFIX,
@@ -63,7 +63,7 @@ test("agentBrowserExtension keeps the full browser playbook in tool metadata and
 	const [genericTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
 		harness.handlers,
 		"before_agent_start",
-		{ prompt: "Please review the repository architecture.", systemPrompt: "Base system prompt" },
+		{ messageType: "user", prompt: "Please review the repository architecture.", systemPrompt: "Base system prompt" },
 		harness.ctx,
 	);
 	assert.equal(genericTurn, undefined);
@@ -71,7 +71,7 @@ test("agentBrowserExtension keeps the full browser playbook in tool metadata and
 	const [browserTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
 		harness.handlers,
 		"before_agent_start",
-		{ prompt: "Open https://example.com and take a snapshot.", systemPrompt: "Base system prompt" },
+		{ messageType: "user", prompt: "Open https://example.com and take a snapshot.", systemPrompt: "Base system prompt" },
 		harness.ctx,
 	);
 	assert.equal(typeof browserTurn?.systemPrompt, "string");
@@ -79,6 +79,26 @@ test("agentBrowserExtension keeps the full browser playbook in tool metadata and
 	assert.equal(browserTurn?.systemPrompt.includes("Project rule: when browser automation is needed"), true);
 	assert.equal(browserTurn?.systemPrompt.includes("Quick start:"), false);
 	assert.equal(browserTurn?.systemPrompt.includes("Browser operating playbook:"), false);
+
+	// pi >= 1.4.0 starts runs from `pi.sendMessage(..., { triggerTurn: true })` and dispatches
+	// `before_agent_start` with `messageType: "custom"` and no `prompt` field at all.
+	const [customTurn] = await runExtensionEventResults<{ systemPrompt: string }>(
+		harness.handlers,
+		"before_agent_start",
+		{
+			messageType: "custom",
+			message: {
+				role: "custom",
+				customType: "extension-test",
+				content: "Open https://example.com and take a snapshot.",
+				display: false,
+				timestamp: 0,
+			},
+			systemPrompt: "Base system prompt",
+		},
+		harness.ctx,
+	);
+	assert.equal(customTurn, undefined);
 });
 
 test("agentBrowserExtension blocks direct and wrapped agent-browser bash unless the prompt, env, or package dev cwd explicitly allows it", async () => {

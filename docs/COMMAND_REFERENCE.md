@@ -16,7 +16,7 @@ This project intentionally blocks normal `agent-browser` bash usage in most agen
 
 <!-- agent-browser-capability-baseline:start upstream-baseline -->
 <!-- Generated from scripts/agent-browser-capability-baseline.mjs. Run `npm run docs -- command-reference write` to update. Do not edit manually. -->
-This reference is baselined to the locally installed `agent-browser 0.27.0` command/help surface. Upstream `agent-browser` remains the source of truth for command semantics; this file is the local fallback for Pi agent sessions where direct binary help is blocked or discouraged.
+This reference is baselined to the locally installed `agent-browser 0.38.2` command/help surface. Upstream `agent-browser` remains the source of truth for command semantics; this file is the local fallback for Pi agent sessions where direct binary help is blocked or discouraged.
 
 The lightweight drift check is `npm run verify -- command-reference`. Run it whenever the installed upstream `agent-browser` version changes or this reference is edited.
 <!-- agent-browser-capability-baseline:end upstream-baseline -->
@@ -72,7 +72,7 @@ Use `vitals [url]` for Core Web Vitals plus React hydration timing when availabl
 { "args": ["pushstate", "/dashboard?tab=settings"] }
 ```
 
-For first-navigation setup, start on `about:blank`, then stage routes, cookies, or init scripts before navigating. The relevant v0.27.0 surfaces are `network route <url> [--abort|--body <json>] [--resource-type <csv>]` and `cookies set --curl <file>`:
+For first-navigation setup, start on `about:blank`, then stage routes, cookies, or init scripts before navigating. The relevant v0.38.2 surfaces are `network route <url> [--abort|--body <json>] [--resource-type <csv>]` and `cookies set --curl <file>`:
 
 ```json
 { "args": ["open"], "sessionMode": "fresh" }
@@ -144,7 +144,7 @@ For one-call flows, put the click and wait in `batch`; the wait step keeps the s
 { "args": ["batch"], "stdin": "[[\"click\",\"@export\"],[\"wait\",\"--download\",\"/tmp/report.csv\"]]" }
 ```
 
-A successful wait-based download renders a readable summary such as `Download completed: /tmp/report.csv` and exposes top-level `details.savedFilePath` plus `details.savedFile` for non-batch calls. With the current upstream `agent-browser 0.27.0`, `wait --download <path>` may report the requested path before this environment can verify that the file was persisted there. Treat `details.savedFilePath` as upstream-reported metadata unless `details.artifacts[].exists` is true. Upstream tracking: [vercel-labs/agent-browser#1300](https://github.com/vercel-labs/agent-browser/issues/1300).
+A successful wait-based download renders a readable summary such as `Download completed: /tmp/report.csv` and exposes top-level `details.savedFilePath` plus `details.savedFile` for non-batch calls. With the current upstream `agent-browser 0.38.2`, `wait --download <path>` may report the requested path before this environment can verify that the file was persisted there. Treat `details.savedFilePath` as upstream-reported metadata unless `details.artifacts[].exists` is true. Upstream tracking: [vercel-labs/agent-browser#1300](https://github.com/vercel-labs/agent-browser/issues/1300).
 
 ### Download, screenshot, and PDF files
 
@@ -235,6 +235,7 @@ Native-tool note: upstream skills are written for the standalone `agent-browser`
 | Command | Purpose |
 | --- | --- |
 | `open <url>` | Navigate to a URL. |
+| `read [url]` | Extract agent-readable page text; prefers Markdown for URL reads, tries `.md` and nearby `llms.txt` docs, and reads the rendered active tab DOM when the URL is omitted. Do not pass `--json` unless you want upstream JSON output. |
 | `click <sel>` | Click an element or `@ref`. |
 | `dblclick <sel>` | Double-click an element. |
 | `type <sel> <text>` | Type into an element. |
@@ -274,6 +275,8 @@ Native-tool note: upstream skills are written for the standalone `agent-browser`
 | --- | --- |
 | `session` | Show current session name. |
 | `session list` | List active sessions. |
+| `session id --scope worktree --prefix <name>` | Derive a stable session name from the current worktree and prefix. |
+| `session info [--json]` | Inspect daemon and restore status for the current session. |
 | `close` | Close the current browser session. |
 | `close --all` | Close every session. |
 
@@ -313,7 +316,9 @@ Stable tab ids look like `t1`, `t2`, and `t3`. Optional user labels such as `doc
 | `tab new [url]` | Open a new tab. |
 | `tab new --label <name> [url]` | Open a new tab with a user label. |
 | `tab <t<N>|label>` | Switch to a tab by id or label. |
-| `tab close [t<N>|label]` | Close the current tab or a referenced tab. |
+| `tab close [t<N>|label|target]` | Close the current tab or a tab referenced by id, label, or CDP target id. |
+
+CDP target ids from `tab list --json` also work as tab references and stay stable across daemon restarts. Start a session with `--pin-tab` when a closed bound tab must fail with a `tab_gone` error instead of falling back to a neighboring tab.
 
 ### Snapshot
 
@@ -326,6 +331,8 @@ Stable tab ids look like `t1`, `t2`, and `t3`. Optional user labels such as `doc
 | `snapshot -c` / `snapshot --compact` | Remove empty structural elements. |
 | `snapshot -d <n>` / `snapshot --depth <n>` | Limit tree depth. |
 | `snapshot -s <sel>` / `snapshot --selector <sel>` | Scope to a CSS selector. |
+| `snapshot --delta` | Return full state once, then `unchanged` or structural deltas against that baseline. |
+| `snapshot --delta --full`, `snapshot --full` | Force a full snapshot and refresh the delta baseline. |
 
 ### Wait
 
@@ -349,7 +356,8 @@ Stable tab ids look like `t1`, `t2`, and `t3`. Optional user labels such as `doc
 | `diff snapshot` | Compare current versus last snapshot. |
 | `diff screenshot --baseline` | Compare current screenshot versus a baseline image. |
 | `diff url <u1> <u2>` | Compare two pages. |
-| `trace start|stop [path]` | Record a Chrome DevTools trace. |
+| `trace start` | Start a Chrome DevTools trace. |
+| `trace stop [path]` | Stop and save the Chrome DevTools trace. |
 | `profiler start|stop [path]` | Record a Chrome DevTools profile. |
 | `record start <path> [url]` | Start WebM video recording; output is written on `record stop`. |
 | `record stop` | Stop and save video. |
@@ -368,6 +376,11 @@ Stable tab ids look like `t1`, `t2`, and `t3`. Optional user labels such as `doc
 | `react suspense [--only-dynamic] [--json]` | Classify Suspense boundaries with grouped root-cause recommendations. |
 | `vitals [url] [--json]` | Report Core Web Vitals: LCP, CLS, TTFB, FCP, INP, plus React hydration timing when available. |
 | `pushstate <url>` | Perform SPA client-side navigation; detects Next.js router pushes and falls back to history navigation events. |
+| `a11y [url] [--tags <t1,t2>] [--selector <css>] [--json]` | Run an offline axe-core accessibility audit of the current page or the given URL, filtered by WCAG tags or a CSS scope. |
+| `webmcp list [tool]` | List page-provided WebMCP tools; optional `--frame <frame-id>`. |
+| `webmcp invoke <tool>` | Invoke a page WebMCP tool with `--params <json|@file>`, `--frame <frame-id>`, `--detach`, and `--timeout <ms>`. |
+| `webmcp result <id>` | Wait for the result of a detached WebMCP invocation. |
+| `webmcp cancel <id>` | Cancel an active WebMCP invocation. |
 | `removeinitscript <id>` | Remove an init script registered through upstream init-script mechanisms. |
 
 When these diagnostic commands are invoked through the native `agent_browser` tool, structured console, page-error, React, Web Vitals, and SPA outputs render as compact summaries when possible, with large outputs previewed and spilled instead of dumped into context. Large outputs are previewed with a `Full output path:` spill file instead of dumping the entire payload into context.
@@ -381,17 +394,28 @@ When these diagnostic commands are invoked through the native `agent_browser` to
 | `batch [--bail] ["cmd" ...]` | Execute multiple commands sequentially from args or stdin. |
 | `auth save <name> [opts]` | Save an auth profile with options such as `--url`, `--username`, `--password`, or `--password-stdin`. Prefer `--password-stdin` with the tool `stdin` field; avoid putting passwords in `args`. |
 | `auth login <name>` | Login using saved credentials. |
+| `auth login <name> --credential-provider <plugin> [--item <ref>]` | Resolve credentials from a configured credential-provider plugin. |
+| `auth login <name> --username-selector <s> --password-selector <s>` | Override login selectors for one login. |
+| `auth login <name> --no-navigate` | Fill an already prepared login page after verifying its origin against the credential URL. |
 | `auth list` | List saved auth profiles. |
 | `auth show <name>` | Show auth profile metadata. |
 | `auth delete <name>` | Delete an auth profile. |
+| `plugin add <ref>` | Add an out-of-process plugin from an npm or GitHub ref. |
+| `plugin [list]` | List configured plugins. |
+| `plugin show <name>` | Show one configured plugin. |
+| `plugin run <name> <type>` | Run a command-run or custom plugin request. |
+| `agent-browser mcp` | Start a stdio MCP server exposing agent-browser tools. |
 | `confirm <id>` | Approve a pending action. |
 | `deny <id>` | Deny a pending action. |
 | `session` | Show current session name. |
 | `session list` | List active sessions. |
+| `session id --scope worktree --prefix <name>` | Derive a stable worktree-scoped session name. |
+| `session info [--json]` | Inspect daemon and restore status. |
 | `chat <message>` | Send a natural-language instruction. |
 | `chat` | Start interactive chat when stdin is a TTY. |
 | `dashboard [start]` | Start the dashboard server on the default port `4848`. |
 | `dashboard start --port <n>` | Start the dashboard on a specific port. |
+| `dashboard start --allowed-origins <origins>` | Allow exact HTTPS origins when the dashboard sits behind a reverse proxy. |
 | `dashboard stop` | Stop the dashboard server. |
 | `install` | Install browser binaries. |
 | `install --with-deps` | Install browser binaries plus Linux system dependencies. |
@@ -407,7 +431,11 @@ When these commands are invoked through the native `agent_browser` tool, structu
 
 - `--profile <name|path>`: reuse Chrome profile login state or use a persistent custom profile. Environment: `AGENT_BROWSER_PROFILE`.
 - `--session <name>`: use an isolated session. Environment: `AGENT_BROWSER_SESSION`.
-- `--session-name <name>`: auto-save/restore cookies and local storage by name. Environment: `AGENT_BROWSER_SESSION_NAME`.
+- `--restore [name]`: auto-save and restore cookies plus local storage for this run; without a name it uses the `--session` value as the restore key. Environment: `AGENT_BROWSER_RESTORE`.
+- `--restore-save <policy>`: restore auto-save policy `auto`, `always`, or `never`. Environment: `AGENT_BROWSER_RESTORE_SAVE`.
+- `--restore-check-url <glob>`, `--restore-check-text <txt>`, `--restore-check-fn <js>`: validate restored state against the current URL, visible text, or a truthy JavaScript expression before using it. Environments: `AGENT_BROWSER_RESTORE_CHECK_URL`, `AGENT_BROWSER_RESTORE_CHECK_TEXT`, `AGENT_BROWSER_RESTORE_CHECK_FN`.
+- `--namespace <name>`: isolate daemon sockets and restore-state directories. Environment: `AGENT_BROWSER_NAMESPACE`.
+- `--session-name <name>`: legacy alias for the restore persistence key. Environment: `AGENT_BROWSER_SESSION_NAME`.
 - `--state <path>`: load saved auth state from JSON. Environment: `AGENT_BROWSER_STATE`.
 - `--auto-connect`: connect to a running Chrome to reuse auth state. Environment: `AGENT_BROWSER_AUTO_CONNECT`.
 - `--headers <json>`: apply HTTP headers scoped to the opened URL's origin.
@@ -426,9 +454,18 @@ When these commands are invoked through the native `agent_browser` tool, structu
 - `--allow-file-access`: allow `file://` URLs to access local files. Environment: `AGENT_BROWSER_ALLOW_FILE_ACCESS`.
 - `--headed`: show the browser window. Environment: `AGENT_BROWSER_HEADED`.
 - `--cdp <port>`: connect through Chrome DevTools Protocol.
+- `--extension <path>`: load a browser extension; repeatable. Environment: `AGENT_BROWSER_EXTENSIONS`.
 - `--color-scheme <scheme>`: `dark`, `light`, or `no-preference`. Environment: `AGENT_BROWSER_COLOR_SCHEME`.
 - `--download-path <path>`: default browser download directory. Environment: `AGENT_BROWSER_DOWNLOAD_PATH`.
 - `--engine <name>`: browser engine, `chrome` by default or `lightpanda`. Environment: `AGENT_BROWSER_ENGINE`.
+- `--ca-cert <path>`: trust a CA certificate for HTTPS interception proxies; effective for the running session. Environment: `AGENT_BROWSER_CA_CERT`.
+- `--no-ca-cert`: clear CA trust retained by the running browser session. Environment: `AGENT_BROWSER_CLEAR_CA_CERT`.
+- `--webgpu`: enable WebGPU, using SwiftShader software Vulkan where no GPU is available. Environment: `AGENT_BROWSER_WEBGPU`.
+- `--no-webmcp`: disable default experimental WebMCP support for locally launched Chrome. Environment: `AGENT_BROWSER_NO_WEBMCP`.
+- `--pin-tab` / `--no-pin-tab`: make the session-to-tab binding strict, or turn a sticky pin off. Environment: `AGENT_BROWSER_PIN_TAB`.
+- `--input-mode <mode>`: session pointer movement, `instant` (default), `smooth`, or `human`.
+- `--idle-timeout <time>`: shut the daemon down after inactivity, for example `10s`, `3m`, `1h`, or raw milliseconds; `0` disables it. Environment: `AGENT_BROWSER_IDLE_TIMEOUT_MS`.
+- `--screenshot-dir`, `--screenshot-quality`, and `--screenshot-format` also cover conditional captures with `--if-changed` and `--threshold <0-1>`.
 - `--no-auto-dialog`: disable automatic dismissal of alert/beforeunload dialogs. Environment: `AGENT_BROWSER_NO_AUTO_DIALOG`.
 
 ### Output, provider, policy, and AI flags
@@ -463,7 +500,7 @@ When these commands are invoked through the native `agent_browser` tool, structu
 
 Use `--config <path>` to load a specific config file. Boolean flags accept optional `true` or `false` values, such as `--headed false`, to override config. Browser extensions from user and project configs are merged rather than replaced.
 
-Other useful environment variables include `AGENT_BROWSER_DEFAULT_TIMEOUT`, `AGENT_BROWSER_STREAM_PORT`, `AGENT_BROWSER_IDLE_TIMEOUT_MS`, `AGENT_BROWSER_ENCRYPTION_KEY`, `AGENT_BROWSER_STATE_EXPIRE_DAYS`, `AGENT_BROWSER_IOS_UDID`, `AI_GATEWAY_URL`, and `AI_GATEWAY_API_KEY`.
+Other useful environment variables include `AGENT_BROWSER_AUTOSAVE_INTERVAL_MS`, `AGENT_BROWSER_STREAM_QUALITY`, `AGENT_BROWSER_STREAM_MAX_WIDTH`, `AGENT_BROWSER_STREAM_MAX_HEIGHT`, `AGENT_BROWSER_DASHBOARD_ALLOWED_ORIGINS`, `AGENT_BROWSER_NO_XVFB`, `AGENT_BROWSER_DEFAULT_TIMEOUT`, `AGENT_BROWSER_STREAM_PORT`, `AGENT_BROWSER_IDLE_TIMEOUT_MS`, `AGENT_BROWSER_ENCRYPTION_KEY`, `AGENT_BROWSER_STATE_EXPIRE_DAYS`, `AGENT_BROWSER_IOS_DEVICE`, `AGENT_BROWSER_IOS_UDID`, `AGENT_BROWSER_PLUGINS`, `AI_GATEWAY_URL`, and `AI_GATEWAY_API_KEY`.
 
 ## Wrapper-specific behavior worth knowing
 
@@ -471,7 +508,7 @@ Other useful environment variables include `AGENT_BROWSER_DEFAULT_TIMEOUT`, `AGE
 - If launch-scoped flags like `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable` would be ignored because that implicit session is already active, retry with `sessionMode: "fresh"`.
 <!-- agent-browser-playbook:start wrapper-tab-recovery -->
 <!-- Generated from extensions/agent-browser/lib/playbook.ts. Run `npm run docs -- playbook write` to update. -->
-- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
+- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --restore, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
 - After a target tab is known for a session, later active-tab commands best-effort pin that tab inside the same upstream invocation when reconnect drift would otherwise move the command to a restored/background tab.
 - After a successful command on a known target tab, agent_browser also best-effort restores that intended tab if a restored/background tab steals focus after the command completes.
 - If a known session target unexpectedly reports about:blank, agent_browser preserves the prior intended target, best-effort re-selects it when it still exists, and reports exact recovery guidance when it cannot be re-selected.
@@ -485,7 +522,7 @@ Other useful environment variables include `AGENT_BROWSER_DEFAULT_TIMEOUT`, `AGE
 <!-- agent-browser-capability-baseline:start capability-token-baseline -->
 <!-- Generated from scripts/agent-browser-capability-baseline.mjs. Run `npm run docs -- command-reference write` to update. Do not edit manually. -->
 <details>
-<summary>Generated verifier capability baseline for agent-browser 0.27.0</summary>
+<summary>Generated verifier capability baseline for agent-browser 0.38.2</summary>
 
 This generated block is review data for maintainers. The human-authored reference sections above remain the readable command guide.
 
@@ -497,7 +534,9 @@ This generated block is review data for maintainers. The human-authored referenc
 
 #### Upstream help tokens expected
 - root help: `skills`
+- root help: `read [url]`
 - root help: `keyboard`
+- root help: `keyboard inserttext <text>`
 - root help: `scroll`
 - root help: `scrollintoview`
 - root help: `connect`
@@ -509,21 +548,28 @@ This generated block is review data for maintainers. The human-authored referenc
 - root help: `cookies [get|set|clear]`
 - root help: `storage`
 - root help: `diff snapshot`
-- root help: `trace start|stop [path]`
+- root help: `trace stop [path]`
 - root help: `profiler start|stop [path]`
 - root help: `record start <path> [url]`
+- root help: `record stop`
 - root help: `console [--clear]`
 - root help: `errors [--clear]`
 - root help: `highlight <sel>`
 - root help: `inspect`
 - root help: `clipboard <op> [text]`
 - root help: `stream enable [--port <n>]`
+- root help: `stream status`
+- root help: `webmcp list [tool]`
+- root help: `webmcp invoke <tool>`
+- root help: `webmcp result <id>`
+- root help: `webmcp cancel <id>`
 - root help: `react tree`
 - root help: `react inspect <id>`
 - root help: `react renders start`
 - root help: `react renders stop [--json]`
 - root help: `react suspense [--only-dynamic] [--json]`
 - root help: `vitals [url] [--json]`
+- root help: `a11y [url] [--tags <t1,t2>] [--selector <css>] [--json]`
 - root help: `pushstate <url>`
 - root help: `removeinitscript <id>`
 - root help: `--init-script <path>`
@@ -531,17 +577,50 @@ This generated block is review data for maintainers. The human-authored referenc
 - root help: `--resource-type <csv>`
 - root help: `cookies set --curl <file>`
 - root help: `auth save <name>`
+- root help: `--credential-provider <plugin>`
+- root help: `auth login <name> --no-navigate`
+- root help: `auth list`
+- root help: `plugin add <ref>`
+- root help: `plugin run <name> <type>`
+- root help: `exposing agent-browser tools`
 - root help: `confirm <id>`
 - root help: `deny <id>`
 - root help: `chat <message>`
 - root help: `dashboard start --port <n>`
+- root help: `dashboard start --allowed-origins`
+- root help: `dashboard stop`
 - root help: `install --with-deps`
 - root help: `upgrade`
 - root help: `doctor [--fix]`
 - root help: `profiles`
+- root help: `session id --scope worktree --prefix`
+- root help: `session info --json`
+- root help: `--restore [name]`
+- root help: `--restore-save <policy>`
+- root help: `--restore-check-url <glob>`
+- root help: `--restore-check-text <txt>`
+- root help: `--restore-check-fn <js>`
+- root help: `--namespace <name>`
+- root help: `--pin-tab`
+- root help: `--no-pin-tab`
+- root help: `--input-mode <mode>`
+- root help: `--ca-cert <path>`
+- root help: `--webgpu`
+- root help: `--no-webmcp`
+- root help: `--idle-timeout <time>`
+- root help: `AGENT_BROWSER_RESTORE`
+- root help: `AGENT_BROWSER_NAMESPACE`
+- root help: `AGENT_BROWSER_AUTOSAVE_INTERVAL_MS`
+- root help: `close [--all]`
+- root help: `har <start|stop> [path]`
+- root help: `requests [--clear] [--filter <pattern>]`
+- root help: `diff url <u1> <u2>`
 - snapshot help: `-u, --urls`
+- snapshot help: `--delta`
+- snapshot help: `--full`
 - wait help: `--download [path]`
 - tab help: `new --label <name> [url]`
+- tab help: `close [t<N>|label|target]`
 
 </details>
 <!-- agent-browser-capability-baseline:end capability-token-baseline -->

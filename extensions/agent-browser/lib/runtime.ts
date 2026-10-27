@@ -48,8 +48,20 @@ const LAUNCH_SCOPED_FLAG_DEFINITIONS = [
 		reason: "registers page init scripts before the upstream browser session is launched",
 	},
 	{
+		flag: "--namespace",
+		reason: "selects the upstream daemon socket and restore-state namespace for the launch",
+	},
+	{
 		flag: "--profile",
 		reason: "selects Chrome profile state for the upstream launch",
+	},
+	{
+		flag: "--restore",
+		reason: "selects the upstream restore key used to auto-save and restore browser state for this run",
+	},
+	{
+		flag: "--restore-save",
+		reason: "selects when the upstream launch writes restore state for this run",
 	},
 	{
 		flag: "--session-name",
@@ -68,7 +80,7 @@ const LAUNCH_SCOPED_FLAG_LABEL = LAUNCH_SCOPED_FLAG_DEFINITIONS.map((definition)
  * and are plausible wrong-active-tab sources after a fresh launch. These trigger post-open
  * tab-correction (the `tab list` + re-select cycle).
  */
-const LAUNCH_SCOPED_TAB_CORRECTION_FLAGS = new Set(["--profile", "--session-name", "--state"] as const);
+const LAUNCH_SCOPED_TAB_CORRECTION_FLAGS = new Set(["--profile", "--restore", "--session-name", "--state"] as const);
 const OPEN_COMMANDS = new Set(["goto", "navigate", "open"]);
 const OPENAI_HEADLESS_COMPAT_HOSTS = new Set(["chat.com", "chat.openai.com", "chatgpt.com"]);
 const AGENT_BROWSER_IDLE_TIMEOUT_ENV = "AGENT_BROWSER_IDLE_TIMEOUT_MS";
@@ -116,9 +128,14 @@ const SENSITIVE_FIELD_NAME_PATTERN =
 
 const GLOBAL_FLAGS_WITH_VALUES = new Set([
 	"--session",
+	"--namespace",
 	"--cdp",
 	"--config",
 	"--profile",
+	"--restore-save",
+	"--restore-check-url",
+	"--restore-check-text",
+	"--restore-check-fn",
 	"--session-name",
 	"--proxy",
 	"--proxy-bypass",
@@ -130,6 +147,9 @@ const GLOBAL_FLAGS_WITH_VALUES = new Set([
 	"--provider",
 	"-p",
 	"--engine",
+	"--ca-cert",
+	"--input-mode",
+	"--idle-timeout",
 	"--state",
 	"--download-path",
 	"--screenshot-dir",
@@ -454,7 +474,18 @@ export function redactInvocationArgs(args: string[]): string[] {
 	return redacted;
 }
 
-export function shouldAppendBrowserSystemPrompt(prompt: string): boolean {
+/**
+ * Decide whether a run's user prompt is browser-oriented enough to warrant the project rule.
+ *
+ * `prompt` is optional on purpose: pi >= 1.4.0 also dispatches `before_agent_start` for
+ * extension-triggered runs, and those `BeforeAgentStartCustomEvent`s carry a `message` and
+ * no `prompt` at all.
+ */
+export function shouldAppendBrowserSystemPrompt(prompt: string | undefined): boolean {
+	if (typeof prompt !== "string") {
+		return false;
+	}
+
 	const normalizedPrompt = prompt.trim();
 	if (normalizedPrompt.length === 0) {
 		return false;

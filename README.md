@@ -172,7 +172,7 @@ For asynchronous exports, click first and then wait for the download:
 { "args": ["wait", "--download", "/tmp/report.csv"] }
 ```
 
-With upstream `agent-browser 0.27.0`, treat `details.savedFilePath` as upstream-reported metadata and confirm `details.artifacts[].exists` before relying on the requested `wait --download <path>` file being present on disk.
+With upstream `agent-browser 0.38.2`, treat `details.savedFilePath` as upstream-reported metadata and confirm `details.artifacts[].exists` before relying on the requested `wait --download <path>` file being present on disk.
 
 Start a fresh profiled browser after the implicit public-browsing session already exists:
 
@@ -189,9 +189,9 @@ The wrapper does not clone profiles or hide what upstream Chrome profile you cho
 Use these rules:
 
 - Use public/temp profiles for tests and examples.
-- Use `sessionMode: "fresh"` when switching from public browsing to `--profile`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable`.
+- Use `sessionMode: "fresh"` when switching from public browsing to `--profile`, `--restore`, `--namespace`, `--session-name`, `--cdp`, `--state`, `--auto-connect`, `--init-script`, or `--enable`.
 - Use `--session` when you want to manage a live upstream session name yourself.
-- Do not treat `--session` as persisted auth or tab restore after `close`; use `--profile`, `--session-name`, or `--state` for persistence.
+- Do not treat `--session` as persisted auth or tab restore after `close`; use `--profile`, `--restore`, `--session-name`, or `--state` for persistence.
 - Prefer page actions and storage checks over cookie dumps. `cookies get` can expose real profile cookies.
 - Prefer `auth save --password-stdin` over putting passwords in `args`.
 
@@ -334,7 +334,7 @@ These calls return plain text and stay stateless: the extension does not inject 
 
 <!-- agent-browser-playbook:start wrapper-tab-recovery -->
 <!-- Generated from extensions/agent-browser/lib/playbook.ts. Run `npm run docs -- playbook write` to update. -->
-- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
+- After launch-scoped open/goto/navigate calls that can restore existing tabs (for example --profile, --restore, --session-name, or --state), agent_browser best-effort re-selects the tab whose URL matches the returned page when restored tabs steal focus during launch.
 - After a target tab is known for a session, later active-tab commands best-effort pin that tab inside the same upstream invocation when reconnect drift would otherwise move the command to a restored/background tab.
 - After a successful command on a known target tab, agent_browser also best-effort restores that intended tab if a restored/background tab steals focus after the command completes.
 - If a known session target unexpectedly reports about:blank, agent_browser preserves the prior intended target, best-effort re-selects it when it still exists, and reports exact recovery guidance when it cannot be re-selected.
